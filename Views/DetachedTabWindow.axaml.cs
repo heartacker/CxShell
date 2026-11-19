@@ -5,6 +5,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Threading;
 using CxShell.ViewModels;
 
 namespace CxShell.Views;
@@ -20,11 +22,20 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
     private TerminalTabViewModel? _tab;
     private Action<TerminalTabViewModel>? _closeTab;
     private WindowState _windowStateBeforeFullScreen = WindowState.Normal;
+    private readonly DispatcherTimer _floatingBarHideTimer;
+    private bool _isPointerOverFloatingBar;
+    private bool _isFloatingBarPinned;
     private bool _disposed;
 
     public DetachedTabWindow()
     {
         InitializeComponent();
+        _floatingBarHideTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(750)
+        };
+        _floatingBarHideTimer.Tick += (_, _) => HideFloatingBarIfNeeded();
+
         Closed += OnClosed;
         PropertyChanged += OnWindowPropertyChanged;
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -82,6 +93,7 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _floatingBarHideTimer.Stop();
         OpenWindows.Remove(this);
         DisposeTab();
     }
@@ -130,6 +142,152 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
         var state = WindowState;
         if (state != WindowState.FullScreen)
             _windowStateBeforeFullScreen = state;
+
+        UpdateImmersiveChrome(state);
+    }
+
+    private void UpdateImmersiveChrome(WindowState state)
+    {
+        var isImmersive = state is WindowState.Maximized or WindowState.FullScreen;
+        IsTitleBarVisible = !isImmersive;
+
+        if (FloatingTitleBarHost == null || FloatingTitleBarPanel == null)
+            return;
+
+        FloatingTitleBarHost.IsVisible = isImmersive;
+        if (!isImmersive)
+        {
+            _floatingBarHideTimer.Stop();
+            _isPointerOverFloatingBar = false;
+            FloatingTitleBarPanel.IsVisible = false;
+            return;
+        }
+
+        // Briefly reveal the floating title bar when entering Maximized/FullScreen
+        // so the user can discover it immediately, then auto-hide unless pinned.
+        FloatingTitleBarPanel.IsVisible = true;
+        if (!_isFloatingBarPinned)
+        {
+            _floatingBarHideTimer.Interval = TimeSpan.FromMilliseconds(1500);
+            _floatingBarHideTimer.Stop();
+            _floatingBarHideTimer.Start();
+        }
+    }
+
+    private void FloatingTitleBar_OnPointerEntered(object? sender, PointerEventArgs e)
+    {
+        _isPointerOverFloatingBar = true;
+        _floatingBarHideTimer.Stop();
+
+        if (FloatingTitleBarPanel != null && WindowState is WindowState.Maximized or WindowState.FullScreen)
+            FloatingTitleBarPanel.IsVisible = true;
+    }
+
+    private void FloatingTitleBar_OnPointerExited(object? sender, PointerEventArgs e)
+    {
+        _isPointerOverFloatingBar = false;
+        if (_isFloatingBarPinned)
+            return;
+
+        _floatingBarHideTimer.Interval = TimeSpan.FromMilliseconds(750);
+        _floatingBarHideTimer.Stop();
+        _floatingBarHideTimer.Start();
+    }
+
+    private void HideFloatingBarIfNeeded()
+    {
+        _floatingBarHideTimer.Stop();
+        if (_isPointerOverFloatingBar || _isFloatingBarPinned)
+            return;
+
+        if (FloatingTitleBarPanel != null)
+            FloatingTitleBarPanel.IsVisible = false;
+    }
+
+    private void FloatingTitleBar_OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+
+        // Allow dragging the floating bar to restore to Normal window state.
+        if (e.Source is Control source && IsInsideButton(source))
+            return;
+
+        if (WindowState is WindowState.Maximized or WindowState.FullScreen)
+        {
+            WindowState = WindowState.Normal;
+            BeginMoveDrag(e);
+            e.Handled = true;
+        }
+    }
+
+    private static bool IsInsideButton(Control? control)
+    {
+        while (control != null)
+        {
+            if (control is Button)
+                return true;
+            control = control.Parent as Control;
+        }
+
+        return false;
+    }
+
+    private void PinFloatingBarButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        _isFloatingBarPinned = !_isFloatingBarPinned;
+        if (PinFloatingBarButton != null)
+        {
+            PinFloatingBarButton.Background = _isFloatingBarPinned
+                ? new SolidColorBrush(Color.Parse("#4464D8FF"))
+                : Brushes.Transparent;
+        }
+
+        if (_isFloatingBarPinned)
+        {
+            _floatingBarHideTimer.Stop();
+            if (FloatingTitleBarPanel != null)
+                FloatingTitleBarPanel.IsVisible = true;
+        }
+        else if (!_isPointerOverFloatingBar)
+        {
+            _floatingBarHideTimer.Interval = TimeSpan.FromMilliseconds(500);
+            _floatingBarHideTimer.Start();
+        }
+
+        FocusActiveContent();
+    }
+
+    private void MinimizeButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void RestoreButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Normal;
+        FocusActiveContent();
+    }
+
+    private void FullScreenButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        ToggleFullScreen();
+        FocusActiveContent();
+    }
+
+    private void CloseButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void FocusActiveContent()
+    {
+        if (RdpContentView?.IsVisible == true)
+            RdpContentView.Focus();
+        else if (TerminalContentView?.IsVisible == true)
+            TerminalContentView.Focus();
+        else if (VncContentView?.IsVisible == true)
+            VncContentView.Focus();
     }
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)

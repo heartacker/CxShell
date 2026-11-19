@@ -1,6 +1,7 @@
 <atom:Window xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:atom="https://atomui.net"
+             xmlns:antdicons="https://atomui.net/icons/antdesign"
              xmlns:vm="using:CxShell.ViewModels"
              xmlns:views="using:CxShell.Views"
              x:Class="CxShell.Views.DetachedTabWindow"
@@ -15,13 +16,144 @@
              IsFullScreenCaptionButtonVisible="True"
              Background="{atom:SharedTokenResource ColorBgLayout}">
     <Grid Background="{atom:SharedTokenResource ColorBgContainer}">
-        <views:TerminalView DataContext="{Binding Terminal, x:CompileBindings=False}"
+        <views:TerminalView x:Name="TerminalContentView"
+                            DataContext="{Binding Terminal, x:CompileBindings=False}"
                             IsVisible="{Binding $parent[Window].DataContext.IsTerminalSession, x:CompileBindings=False}"/>
-        <views:VncView DataContext="{Binding Vnc, x:CompileBindings=False}"
+        <views:VncView x:Name="VncContentView"
+                       DataContext="{Binding Vnc, x:CompileBindings=False}"
                        IsVisible="{Binding $parent[Window].DataContext.IsVncSession, x:CompileBindings=False}"/>
-        <views:RdpView DataContext="{Binding Rdp, x:CompileBindings=False}"
+        <views:RdpView x:Name="RdpContentView"
+                       DataContext="{Binding Rdp, x:CompileBindings=False}"
                        IsVisible="{Binding $parent[Window].DataContext.IsRdpSession, x:CompileBindings=False}"/>
-        <views:SftpPanelView DataContext="{Binding FileTransfer, x:CompileBindings=False}"
+        <views:SftpPanelView x:Name="SftpContentView"
+                             DataContext="{Binding FileTransfer, x:CompileBindings=False}"
                              IsVisible="{Binding $parent[Window].DataContext.IsFileTransferSession, x:CompileBindings=False}"/>
+
+        <!-- Immersive floating title bar for Maximized / FullScreen states -->
+        <Grid x:Name="FloatingTitleBarHost"
+              IsVisible="False"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Top"
+              ZIndex="100">
+            <!-- Narrow top-center hotzone so remote desktop top-left/top-right controls remain clickable -->
+            <Border x:Name="FloatingHotzone"
+                    Width="220"
+                    Height="8"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Background="Transparent"
+                    PointerEntered="FloatingTitleBar_OnPointerEntered">
+                <Border Width="110"
+                        Height="3"
+                        CornerRadius="2"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Top"
+                        Margin="0,1,0,0"
+                        Background="#AA64D8FF"
+                        BoxShadow="0 0 8 0 #8864D8FF"/>
+            </Border>
+
+            <!-- Expanded floating title bar -->
+            <Border x:Name="FloatingTitleBarPanel"
+                    IsVisible="False"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Padding="10,4,6,4"
+                    CornerRadius="0,0,8,8"
+                    Background="#E818202A"
+                    BorderBrush="#5564D8FF"
+                    BorderThickness="1,0,1,1"
+                    BoxShadow="0 6 18 0 #77000000"
+                    PointerEntered="FloatingTitleBar_OnPointerEntered"
+                    PointerExited="FloatingTitleBar_OnPointerExited"
+                    PointerPressed="FloatingTitleBar_OnPointerPressed">
+                <StackPanel Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
+                    <Button x:Name="PinFloatingBarButton"
+                            Width="26"
+                            Height="24"
+                            Padding="0"
+                            Background="Transparent"
+                            Foreground="#CCFFFFFF"
+                            BorderThickness="0"
+                            CornerRadius="4"
+                            ToolTip.Tip="固定/取消固定悬浮标题栏"
+                            Click="PinFloatingBarButton_OnClick">
+                        <atom:IconPresenter x:Name="PinIcon"
+                                            Icon="{antdicons:AntDesignIconProvider Kind=PushpinOutlined}"
+                                            Width="13"
+                                            Height="13"/>
+                    </Button>
+
+                    <TextBlock Text="{Binding Title}"
+                               Foreground="White"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               MaxWidth="260"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Margin="4,0,10,0"
+                               IsHitTestVisible="False"/>
+
+                    <Button Width="26"
+                            Height="24"
+                            Padding="0"
+                            Background="Transparent"
+                            Foreground="#E6FFFFFF"
+                            BorderThickness="0"
+                            CornerRadius="4"
+                            ToolTip.Tip="最小化"
+                            Click="MinimizeButton_OnClick">
+                        <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=MinusOutlined}"
+                                            Width="13"
+                                            Height="13"/>
+                    </Button>
+
+                    <Button Width="26"
+                            Height="24"
+                            Padding="0"
+                            Background="Transparent"
+                            Foreground="#E6FFFFFF"
+                            BorderThickness="0"
+                            CornerRadius="4"
+                            ToolTip.Tip="还原窗口"
+                            Click="RestoreButton_OnClick">
+                        <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=SwitcherOutlined}"
+                                            Width="13"
+                                            Height="13"/>
+                    </Button>
+
+                    <Button x:Name="FullScreenToggleButton"
+                            Width="26"
+                            Height="24"
+                            Padding="0"
+                            Background="Transparent"
+                            Foreground="#E6FFFFFF"
+                            BorderThickness="0"
+                            CornerRadius="4"
+                            ToolTip.Tip="切换全屏 (F11)"
+                            Click="FullScreenButton_OnClick">
+                        <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=FullscreenOutlined}"
+                                            Width="13"
+                                            Height="13"/>
+                    </Button>
+
+                    <Button Width="26"
+                            Height="24"
+                            Padding="0"
+                            Background="Transparent"
+                            Foreground="#FFFF7875"
+                            BorderThickness="0"
+                            CornerRadius="4"
+                            ToolTip.Tip="关闭窗口"
+                            Click="CloseButton_OnClick">
+                        <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=CloseOutlined}"
+                                            Width="13"
+                                            Height="13"/>
+                    </Button>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </atom:Window>
