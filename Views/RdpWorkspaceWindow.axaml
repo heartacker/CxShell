@@ -1,0 +1,87 @@
+<atom:Window xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:atom="https://atomui.net"
+             xmlns:antdicons="https://atomui.net/icons/antdesign"
+             xmlns:views="using:CxShell.Views"
+             x:Class="CxShell.Views.RdpWorkspaceWindow"
+             Title="RDP - CxShell"
+             Icon="/Assets/CxShellLogo.png"
+             Width="1280"
+             Height="800"
+             MinWidth="640"
+             MinHeight="400"
+             WindowStartupLocation="CenterScreen"
+             IsFullScreenCaptionButtonVisible="True"
+             Background="{atom:SharedTokenResource ColorBgLayout}">
+    <Grid RowDefinitions="Auto,*"
+          Background="{atom:SharedTokenResource ColorBgContainer}">
+        <!-- Multi-tab strip -->
+        <Border Grid.Row="0"
+                Background="{atom:SharedTokenResource ColorBgLayout}"
+                BorderBrush="{atom:SharedTokenResource ColorSplit}"
+                BorderThickness="0,0,0,1"
+                Padding="6,4,6,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled">
+                <ItemsControl x:Name="TabStripItems">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="4"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="views:RdpWorkspaceTabItem">
+                            <Border Padding="10,5,6,5"
+                                    CornerRadius="6,6,0,0"
+                                    Background="{Binding TabBackground}"
+                                    BorderBrush="{atom:SharedTokenResource ColorSplit}"
+                                    BorderThickness="1,1,1,0"
+                                    Cursor="Hand"
+                                    PointerPressed="TabItem_OnPointerPressed">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="6"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Title}"
+                                               FontSize="12"
+                                               FontWeight="{Binding TitleFontWeight}"
+                                               Foreground="{atom:SharedTokenResource ColorText}"
+                                               MaxWidth="200"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center"/>
+                                    <Button Width="18"
+                                            Height="18"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            CornerRadius="3"
+                                            Click="CloseTabButton_OnClick">
+                                        <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=CloseOutlined}"
+                                                            Width="11"
+                                                            Height="11"/>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <!-- RDP sessions host (keeps all tabs alive while switching) -->
+        <Grid Grid.Row="1" x:Name="RdpContentHost" Background="#111111">
+            <ItemsControl x:Name="RdpViewsItems">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <Grid/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="views:RdpWorkspaceTabItem">
+                        <views:RdpView DataContext="{Binding Tab.Rdp, x:CompileBindings=False}"
+                                       IsVisible="{Binding IsSelected}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Grid>
+    </Grid>
+</atom:Window>

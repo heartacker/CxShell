@@ -594,6 +594,7 @@ public class SessionInfo
     public string RdpColorQuality { get; set; } = "32";
     public string RdpSecurityMode { get; set; } = "Auto";
     public string RdpLastSuccessfulSecurityMode { get; set; } = string.Empty;
+    public bool RdpOpenInStandaloneWindow { get; set; }
     public bool RdpApplyKeyCombinations { get; set; } = true;
     public bool RdpEnableGraphicsAcceleration { get; set; } = true;
     public bool RdpSyncLockKeys { get; set; } = true;

@@ -1653,7 +1653,7 @@
                                              HorizontalAlignment="Left"
                                              OptionsSource="{Binding RdpColorQualityOptions}"/>
 
-                                <TextBlock Grid.Row="12" Text="Security Mode:"
+                                <TextBlock Grid.Row="12" Text="{Binding [SessionEdit.RdpSecurityMode], Source={x:Static services:LocalizationService.Shared}}"
                                            VerticalAlignment="Center"
                                            Foreground="{atom:SharedTokenResource ColorTextSecondary}"/>
                                 <atom:Select Grid.Row="12" Grid.Column="1"
@@ -1669,6 +1669,26 @@
                                            Text="{Binding [SessionEdit.Unsupported.RdpDisplayPartial], Source={x:Static services:LocalizationService.Shared}}"
                                            TextWrapping="Wrap"
                                            Foreground="{atom:SharedTokenResource ColorTextTertiary}"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Background="{atom:SharedTokenResource ColorBgContainer}"
+                                BorderBrush="{atom:SharedTokenResource ColorBorder}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="18">
+                            <Grid RowDefinitions="Auto,14,Auto"
+                                  ColumnDefinitions="150,420,*"
+                                  ColumnSpacing="8">
+                                <TextBlock Grid.ColumnSpan="3"
+                                           Text="{Binding [SessionEdit.RdpWindowModeSection], Source={x:Static services:LocalizationService.Shared}}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{atom:SharedTokenResource ColorText}"/>
+                                <atom:CheckBox Grid.Row="2"
+                                               Grid.Column="1"
+                                               Grid.ColumnSpan="2"
+                                               Content="{Binding [SessionEdit.RdpOpenInStandaloneWindow], Source={x:Static services:LocalizationService.Shared}}"
+                                               IsChecked="{Binding RdpOpenInStandaloneWindow, Mode=TwoWay}"/>
                             </Grid>
                         </Border>
 

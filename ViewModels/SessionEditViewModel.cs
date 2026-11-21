@@ -329,6 +329,7 @@ public partial class SessionEditViewModel : ObservableObject
     [ObservableProperty] private string _rdpScreenScale = "Auto";
     [ObservableProperty] private string _rdpColorQuality = "32";
     [ObservableProperty] private string _rdpSecurityMode = "Auto";
+    [ObservableProperty] private bool _rdpOpenInStandaloneWindow;
     [ObservableProperty] private bool _rdpApplyKeyCombinations = true;
     [ObservableProperty] private bool _rdpEnableGraphicsAcceleration = true;
     [ObservableProperty] private bool _rdpSyncLockKeys = true;
@@ -1516,6 +1517,7 @@ public partial class SessionEditViewModel : ObservableObject
         RdpScreenScale = string.IsNullOrWhiteSpace(session.RdpScreenScale) ? "Auto" : session.RdpScreenScale;
         RdpColorQuality = string.IsNullOrWhiteSpace(session.RdpColorQuality) ? "32" : session.RdpColorQuality;
         RdpSecurityMode = string.IsNullOrWhiteSpace(session.RdpSecurityMode) ? "Auto" : session.RdpSecurityMode;
+        RdpOpenInStandaloneWindow = session.RdpOpenInStandaloneWindow;
         RdpApplyKeyCombinations = session.RdpApplyKeyCombinations;
         RdpEnableGraphicsAcceleration = session.RdpEnableGraphicsAcceleration;
         RdpSyncLockKeys = session.RdpSyncLockKeys;
@@ -1823,6 +1825,7 @@ public partial class SessionEditViewModel : ObservableObject
         session.RdpScreenScale = RdpScreenScale;
         session.RdpColorQuality = RdpColorQuality;
         session.RdpSecurityMode = string.IsNullOrWhiteSpace(RdpSecurityMode) ? "Auto" : RdpSecurityMode;
+        session.RdpOpenInStandaloneWindow = RdpOpenInStandaloneWindow;
         session.RdpApplyKeyCombinations = RdpApplyKeyCombinations;
         session.RdpEnableGraphicsAcceleration = RdpEnableGraphicsAcceleration;
         session.RdpSyncLockKeys = RdpSyncLockKeys;

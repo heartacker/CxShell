@@ -2071,6 +2071,9 @@ public sealed class LocalizationService : INotifyPropertyChanged
         english["UiText.087"] = "Window size (W):";
         english["UiText.088"] = "Resize screen (C):";
         english["UiText.089"] = "Color quality (Q):";
+        english["SessionEdit.RdpSecurityMode"] = "Security mode:";
+        english["SessionEdit.RdpWindowModeSection"] = "Window Mode";
+        english["SessionEdit.RdpOpenInStandaloneWindow"] = "Open in standalone RDP multi-tab window";
         english["UiText.090"] = "Devices";
         english["UiText.091"] = "Apply key combinations on the remote computer";
         english["UiText.092"] = "Share this computer's drives with the remote computer";
@@ -2337,6 +2340,9 @@ public sealed class LocalizationService : INotifyPropertyChanged
         chinese["UiText.087"] = "窗口大小(W):";
         chinese["UiText.088"] = "改变屏幕大小(C):";
         chinese["UiText.089"] = "颜色质量(Q):";
+        chinese["SessionEdit.RdpSecurityMode"] = "安全模式:";
+        chinese["SessionEdit.RdpWindowModeSection"] = "窗口模式";
+        chinese["SessionEdit.RdpOpenInStandaloneWindow"] = "在独立的 RDP 多标签窗口中打开";
         chinese["UiText.090"] = "设备";
         chinese["UiText.091"] = "在远程计算机上应用密钥组合";
         chinese["UiText.092"] = "与远程计算机分享该计算机的驱动器";

@@ -2540,11 +2540,18 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         var rdp = new RdpViewModel(session, password);
         rdp.SecurityModeConnected += mode => RememberRdpSecurityMode(session, mode);
         var tab = new TerminalTabViewModel(session, rdp);
+        RecordAudit(session, ConnectionAuditEventType.ConnectStarted);
+
+        if (session.RdpOpenInStandaloneWindow)
+        {
+            Views.RdpWorkspaceWindow.OpenTab(tab);
+            return;
+        }
+
         tab.CloseRequested += CloseTab;
         tab.PropertyChanged += OnTerminalTabPropertyChanged;
         AddTabToActiveGroup(tab);
         SelectedTab = tab;
-        RecordAudit(session, ConnectionAuditEventType.ConnectStarted);
 
         IsTerminalFullScreen = false;
         ConnectionStatusText = "RDP ready";
