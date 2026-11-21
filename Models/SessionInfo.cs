@@ -592,6 +592,8 @@ public class SessionInfo
     public string RdpResizeMode { get; set; } = "SmartReconnect";
     public string RdpScreenScale { get; set; } = "Auto";
     public string RdpColorQuality { get; set; } = "32";
+    public string RdpSecurityMode { get; set; } = "Auto";
+    public string RdpLastSuccessfulSecurityMode { get; set; } = string.Empty;
     public bool RdpApplyKeyCombinations { get; set; } = true;
     public bool RdpRedirectDrives { get; set; }
     public string RdpDriveName { get; set; } = "CxShell";

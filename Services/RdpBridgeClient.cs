@@ -33,8 +33,12 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint AudioPlaybackCapability = 0x00000004;
     private const uint MicrophoneCapability = 0x00000008;
     private const uint KeyboardHookCapability = 0x00000010;
+    private const uint DisplayScaleCapability = 0x00000020;
+    private const uint SecurityModeCapability = 0x00000040;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
+    private const uint DisplayScaleApiVersion = 5;
+    private const uint SecurityModeApiVersion = 6;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -47,6 +51,7 @@ public sealed class RdpBridgeClient : IDisposable
     private SshClient? _sshTunnelClient;
     private ForwardedPortLocal? _sshTunnelPort;
     private LoopbackProxyRelay? _proxyRelay;
+    private string? _lastAttemptedSecurityMode;
 
     static RdpBridgeClient()
     {
@@ -57,6 +62,7 @@ public sealed class RdpBridgeClient : IDisposable
     public event Action<string>? StatusChanged;
     public event Action? Disconnected;
     public event Action<string>? ClipboardTextReceived;
+    public event Action<string>? SecurityModeConnected;
 
     public static string DebugLogPath => Path.Combine(GetDebugLogDirectory(), "rdp-debug.log");
 
@@ -77,7 +83,7 @@ public sealed class RdpBridgeClient : IDisposable
         _clipboardTextCallback = OnClipboardText;
     }
 
-    public void Connect(SessionInfo session, string? password, int? desktopWidth = null, int? desktopHeight = null)
+    public void Connect(SessionInfo session, string? password, int? desktopWidth = null, int? desktopHeight = null, int desktopScaleFactor = 100)
     {
         Disconnect();
 
@@ -85,6 +91,8 @@ public sealed class RdpBridgeClient : IDisposable
         var port = session.Port > 0 ? session.Port : 3389;
         var width = Math.Max(1, desktopWidth ?? session.RdpDesktopWidth);
         var height = Math.Max(1, desktopHeight ?? session.RdpDesktopHeight);
+        var clampedDesktopScale = Math.Clamp(desktopScaleFactor, 100, 500);
+        var deviceScale = clampedDesktopScale >= 180 ? 180 : clampedDesktopScale >= 140 ? 140 : 100;
         var driveName = NormalizeDriveName(session.RdpDriveName);
         var drivePath = string.Empty;
         var audioPlaybackMode = RdpAudioOptions.ResolvePlaybackMode(session.RdpAudioMode);
@@ -214,6 +222,44 @@ public sealed class RdpBridgeClient : IDisposable
                 throw new InvalidOperationException(
                     string.IsNullOrWhiteSpace(error)
                         ? $"RDP keyboard configuration failed: {keyboardResult}"
+                        : error);
+            }
+        }
+
+        if (nativeApiVersion >= DisplayScaleApiVersion &&
+            (nativeCapabilities & DisplayScaleCapability) != 0)
+        {
+            var scaleResult = NativeMethods.cxrdp_set_display_scale(
+                _handle,
+                (uint)clampedDesktopScale,
+                (uint)deviceScale);
+            if (scaleResult != 0)
+            {
+                var error = GetLastError();
+                Disconnect();
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(error)
+                        ? $"RDP display scale configuration failed: {scaleResult}"
+                        : error);
+            }
+        }
+
+        _lastAttemptedSecurityMode = null;
+        if (nativeApiVersion >= SecurityModeApiVersion &&
+            (nativeCapabilities & SecurityModeCapability) != 0)
+        {
+            var (preferredMode, allowFallback) = ResolveSecurityModeOptions(session);
+            var securityResult = NativeMethods.cxrdp_set_security_mode(
+                _handle,
+                preferredMode,
+                allowFallback ? 1 : 0);
+            if (securityResult != 0)
+            {
+                var error = GetLastError();
+                Disconnect();
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(error)
+                        ? $"RDP security mode configuration failed: {securityResult}"
                         : error);
             }
         }
@@ -610,9 +656,59 @@ public sealed class RdpBridgeClient : IDisposable
         var text = message == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(message) ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(text))
         {
+            TrackConnectedSecurityMode(text);
             DebugLogStatus(text);
             StatusChanged?.Invoke(text);
         }
+    }
+
+    private void TrackConnectedSecurityMode(string text)
+    {
+        const string attemptPrefix = "RDP security attempt mode=";
+        if (text.StartsWith(attemptPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = text[attemptPrefix.Length..];
+            var spaceIndex = rest.IndexOf(' ');
+            var mode = (spaceIndex >= 0 ? rest[..spaceIndex] : rest).Trim();
+            if (!string.IsNullOrEmpty(mode))
+                _lastAttemptedSecurityMode = NormalizeSecurityModeToken(mode);
+            return;
+        }
+
+        if (string.Equals(text, "RDP connected.", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrEmpty(_lastAttemptedSecurityMode))
+        {
+            SecurityModeConnected?.Invoke(_lastAttemptedSecurityMode);
+        }
+    }
+
+    private static (string PreferredMode, bool AllowFallback) ResolveSecurityModeOptions(SessionInfo session)
+    {
+        var configured = NormalizeSecurityModeToken(session.RdpSecurityMode);
+        if (string.IsNullOrEmpty(configured) || string.Equals(configured, "auto", StringComparison.Ordinal))
+        {
+            var remembered = NormalizeSecurityModeToken(session.RdpLastSuccessfulSecurityMode);
+            var preferred = string.IsNullOrEmpty(remembered) || string.Equals(remembered, "auto", StringComparison.Ordinal)
+                ? "negotiate"
+                : remembered;
+            return (preferred, true);
+        }
+
+        return (configured, false);
+    }
+
+    private static string NormalizeSecurityModeToken(string? value)
+    {
+        var normalized = value?.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "auto" => "auto",
+            "negotiate" => "negotiate",
+            "nla" => "nla",
+            "tls" => "tls",
+            "rdp" => "rdp",
+            _ => string.Empty
+        };
     }
 
     private void OnDisconnected(IntPtr userData)
@@ -816,6 +912,18 @@ public sealed class RdpBridgeClient : IDisposable
         public static extern int cxrdp_set_keyboard_options(
             IntPtr handle,
             int applyKeyCombinationsRemotely);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int cxrdp_set_display_scale(
+            IntPtr handle,
+            uint desktopScaleFactor,
+            uint deviceScaleFactor);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int cxrdp_set_security_mode(
+            IntPtr handle,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string preferredMode,
+            int allowFallback);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr cxrdp_get_last_error(IntPtr handle);

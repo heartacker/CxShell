@@ -328,6 +328,7 @@ public partial class SessionEditViewModel : ObservableObject
     [ObservableProperty] private string _rdpResizeMode = "SmartReconnect";
     [ObservableProperty] private string _rdpScreenScale = "Auto";
     [ObservableProperty] private string _rdpColorQuality = "32";
+    [ObservableProperty] private string _rdpSecurityMode = "Auto";
     [ObservableProperty] private bool _rdpApplyKeyCombinations = true;
     [ObservableProperty] private bool _rdpRedirectDrives;
     [ObservableProperty] private string _rdpDriveName = "CxShell";
@@ -1018,6 +1019,14 @@ public partial class SessionEditViewModel : ObservableObject
         new SelectOption { Header = "True Color (24 bit)", Content = "24" },
         new SelectOption { Header = "Highest Quality (32 bit)", Content = "32" }
     ];
+    public ObservableCollection<ISelectOption> RdpSecurityModeOptions { get; } =
+    [
+        new SelectOption { Header = "Auto (Remember Last)", Content = "Auto" },
+        new SelectOption { Header = "Negotiate (Recommended)", Content = "Negotiate" },
+        new SelectOption { Header = "NLA (Network Level Auth)", Content = "NLA" },
+        new SelectOption { Header = "TLS", Content = "TLS" },
+        new SelectOption { Header = "RDP (Legacy)", Content = "RDP" }
+    ];
     public ObservableCollection<ISelectOption> RdpAudioModeOptions { get; } =
     [
         new SelectOption { Header = "Play on this computer", Content = "PlayLocal" },
@@ -1503,6 +1512,7 @@ public partial class SessionEditViewModel : ObservableObject
         RdpResizeMode = string.IsNullOrWhiteSpace(session.RdpResizeMode) ? "SmartReconnect" : session.RdpResizeMode;
         RdpScreenScale = string.IsNullOrWhiteSpace(session.RdpScreenScale) ? "Auto" : session.RdpScreenScale;
         RdpColorQuality = string.IsNullOrWhiteSpace(session.RdpColorQuality) ? "32" : session.RdpColorQuality;
+        RdpSecurityMode = string.IsNullOrWhiteSpace(session.RdpSecurityMode) ? "Auto" : session.RdpSecurityMode;
         RdpApplyKeyCombinations = session.RdpApplyKeyCombinations;
         RdpRedirectDrives = session.RdpRedirectDrives;
         RdpDriveName = string.IsNullOrWhiteSpace(session.RdpDriveName) ? "CxShell" : session.RdpDriveName;
@@ -1806,6 +1816,7 @@ public partial class SessionEditViewModel : ObservableObject
         session.RdpResizeMode = RdpResizeMode;
         session.RdpScreenScale = RdpScreenScale;
         session.RdpColorQuality = RdpColorQuality;
+        session.RdpSecurityMode = string.IsNullOrWhiteSpace(RdpSecurityMode) ? "Auto" : RdpSecurityMode;
         session.RdpApplyKeyCombinations = RdpApplyKeyCombinations;
         session.RdpRedirectDrives = RdpRedirectDrives;
         session.RdpDriveName = string.IsNullOrWhiteSpace(RdpDriveName) ? "CxShell" : RdpDriveName.Trim();

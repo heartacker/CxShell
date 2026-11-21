@@ -20,6 +20,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _resizeReconnectCts;
     private int? _runtimeDesktopWidth;
     private int? _runtimeDesktopHeight;
+    private int _runtimeDesktopScaleFactor = 100;
 
     [ObservableProperty] private WriteableBitmap? _framebuffer;
     [ObservableProperty] private string _statusText = "RDP disconnected";
@@ -33,6 +34,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
 
     public SessionInfo Session { get; }
     public string? Password { get; }
+    public event Action<string>? SecurityModeConnected;
     public double FixedScaleFactor => Math.Clamp(ScreenScalePercent, 10, 500) / 100.0;
     public string ScaleModeText => IsFitToWindow
         ? "Fit to window"
@@ -47,6 +49,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         _client.FramebufferUpdated += OnFramebufferUpdated;
         _client.StatusChanged += message => Dispatcher.UIThread.Post(() => HandleStatus(message));
         _client.ClipboardTextReceived += OnClipboardTextReceived;
+        _client.SecurityModeConnected += mode => Dispatcher.UIThread.Post(() => SecurityModeConnected?.Invoke(mode));
         _client.Disconnected += () => Dispatcher.UIThread.Post(() =>
         {
             _started = false;
@@ -68,7 +71,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         {
             try
             {
-                _client.Connect(Session, Password, _runtimeDesktopWidth, _runtimeDesktopHeight);
+                _client.Connect(Session, Password, _runtimeDesktopWidth, _runtimeDesktopHeight, _runtimeDesktopScaleFactor);
                 Dispatcher.UIThread.Post(() => IsConnected = false);
             }
             catch (DllNotFoundException ex)
@@ -160,6 +163,8 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         if (_started || IsConnected)
             return;
 
+        _runtimeDesktopScaleFactor = ResolveDesktopScaleFactor(renderScaling);
+
         var size = RdpDisplaySizeResolver.ResolveInitial(
             Session.RdpWindowSize,
             viewportSize,
@@ -188,18 +193,23 @@ public partial class RdpViewModel : ObservableObject, IDisposable
 
         var width = size.Value.Width;
         var height = size.Value.Height;
+        var scaleFactor = ResolveDesktopScaleFactor(renderScaling);
         var currentWidth = _runtimeDesktopWidth ?? Math.Max(1, Session.RdpDesktopWidth);
         var currentHeight = _runtimeDesktopHeight ?? Math.Max(1, Session.RdpDesktopHeight);
-        if (Math.Abs(width - currentWidth) < 32 && Math.Abs(height - currentHeight) < 32)
+        if (Math.Abs(width - currentWidth) < 32 &&
+            Math.Abs(height - currentHeight) < 32 &&
+            scaleFactor == _runtimeDesktopScaleFactor)
+        {
             return;
+        }
 
         _resizeReconnectCts?.Cancel();
         var cts = new CancellationTokenSource();
         _resizeReconnectCts = cts;
-        _ = ReconnectAfterResizeDelayAsync(width, height, cts.Token);
+        _ = ReconnectAfterResizeDelayAsync(width, height, scaleFactor, cts.Token);
     }
 
-    private async Task ReconnectAfterResizeDelayAsync(int width, int height, CancellationToken cancellationToken)
+    private async Task ReconnectAfterResizeDelayAsync(int width, int height, int scaleFactor, CancellationToken cancellationToken)
     {
         try
         {
@@ -211,13 +221,22 @@ public partial class RdpViewModel : ObservableObject, IDisposable
 
                 _runtimeDesktopWidth = width;
                 _runtimeDesktopHeight = height;
-                StatusText = $"RDP resizing to {width}x{height}...";
+                _runtimeDesktopScaleFactor = scaleFactor;
+                StatusText = $"RDP resizing to {width}x{height} ({scaleFactor}%)...";
                 Reconnect();
             });
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    private static int ResolveDesktopScaleFactor(double renderScaling)
+    {
+        if (!double.IsFinite(renderScaling) || renderScaling <= 0)
+            return 100;
+
+        return Math.Clamp((int)Math.Round(renderScaling * 100.0), 100, 500);
     }
 
     public void SendPointer(ushort flags, ushort x, ushort y)

@@ -21,12 +21,14 @@ typedef void (*cxrdp_status_callback)(void* user_data, const char* message);
 typedef void (*cxrdp_disconnect_callback)(void* user_data);
 typedef void (*cxrdp_clipboard_text_callback)(void* user_data, const char* text);
 
-#define CX_RDP_BRIDGE_API_VERSION 4u
+#define CX_RDP_BRIDGE_API_VERSION 6u
 #define CX_RDP_CAPABILITY_CLIPBOARD 0x00000001u
 #define CX_RDP_CAPABILITY_DRIVE_REDIRECTION 0x00000002u
 #define CX_RDP_CAPABILITY_AUDIO_PLAYBACK 0x00000004u
 #define CX_RDP_CAPABILITY_MICROPHONE 0x00000008u
 #define CX_RDP_CAPABILITY_KEYBOARD_HOOK 0x00000010u
+#define CX_RDP_CAPABILITY_DISPLAY_SCALE 0x00000020u
+#define CX_RDP_CAPABILITY_SECURITY_MODE 0x00000040u
 
 #define CX_RDP_AUDIO_PLAY_LOCAL 0
 #define CX_RDP_AUDIO_PLAY_REMOTE 1
@@ -70,6 +72,14 @@ CX_RDP_API int cxrdp_set_audio_redirection(
 CX_RDP_API int cxrdp_set_keyboard_options(
     void* handle,
     int apply_key_combinations_remotely);
+CX_RDP_API int cxrdp_set_display_scale(
+    void* handle,
+    uint32_t desktop_scale_factor,
+    uint32_t device_scale_factor);
+CX_RDP_API int cxrdp_set_security_mode(
+    void* handle,
+    const char* preferred_mode,
+    int allow_fallback);
 CX_RDP_API const char* cxrdp_get_last_error(void* handle);
 
 #ifdef __cplusplus

@@ -15,6 +15,9 @@
 #include <vector>
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #include <winsock2.h>
 #include <windows.h>
 #else
@@ -76,6 +79,10 @@ struct CxRdpSession
     int audio_playback_mode = CX_RDP_AUDIO_DO_NOT_PLAY;
     bool microphone_enabled = false;
     bool apply_key_combinations_remotely = true;
+    uint32_t desktop_scale_factor = 100;
+    uint32_t device_scale_factor = 100;
+    std::string preferred_security_mode;
+    bool allow_security_fallback = true;
     CliprdrClientContext* cliprdr = nullptr;
     bool cliprdr_wire_active = false;
     bool cliprdr_ready = false;
@@ -1761,12 +1768,35 @@ void connection_thread(CxRdpSession* session)
            << " colorDepth=" << session->color_depth;
     notify_status(session, target.str().c_str());
 
-    const SecurityProfile profiles[] = {
+    const SecurityProfile defaultProfiles[] = {
+        { "negotiate", true, true, true, true, false },
         { "nla", true, false, false, false, false },
         { "tls", false, true, false, false, false },
-        { "rdp", false, false, true, false, true },
-        { "negotiate", true, true, true, true, false }
+        { "rdp", false, false, true, false, true }
     };
+
+    std::vector<SecurityProfile> profiles;
+    std::string preferredMode = session->preferred_security_mode;
+    if (!preferredMode.empty())
+    {
+        for (const auto& candidate : defaultProfiles)
+        {
+            if (preferredMode == candidate.name)
+            {
+                profiles.push_back(candidate);
+                break;
+            }
+        }
+    }
+    if (profiles.empty() || session->allow_security_fallback)
+    {
+        for (const auto& candidate : defaultProfiles)
+        {
+            if (!profiles.empty() && std::string(profiles[0].name) == candidate.name)
+                continue;
+            profiles.push_back(candidate);
+        }
+    }
 
     const bool allowClipboardChannel = is_clipboard_channel_allowed();
     bool retriedWithoutClipboard = false;
@@ -1825,6 +1855,18 @@ void connection_thread(CxRdpSession* session)
             freerdp_settings_set_string(settings, FreeRDP_Domain, session->domain.c_str());
             freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, static_cast<uint32_t>(session->width > 0 ? session->width : 1024));
             freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, static_cast<uint32_t>(session->height > 0 ? session->height : 768));
+            if (session->desktop_scale_factor >= 100 && session->desktop_scale_factor <= 500)
+            {
+                freerdp_settings_set_uint32(settings, FreeRDP_DesktopScaleFactor, session->desktop_scale_factor);
+                uint32_t deviceScale = session->device_scale_factor;
+                if (deviceScale != 100u && deviceScale != 140u && deviceScale != 180u)
+                {
+                    deviceScale = session->desktop_scale_factor >= 180u
+                        ? 180u
+                        : (session->desktop_scale_factor >= 140u ? 140u : 100u);
+                }
+                freerdp_settings_set_uint32(settings, FreeRDP_DeviceScaleFactor, deviceScale);
+            }
             freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, static_cast<uint32_t>(session->color_depth));
             freerdp_settings_set_bool(settings, FreeRDP_IgnoreCertificate, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_AutoAcceptCertificate, TRUE);
@@ -1990,7 +2032,9 @@ CX_RDP_API uint32_t cxrdp_get_capabilities(void)
 {
     uint32_t capabilities = CX_RDP_CAPABILITY_CLIPBOARD |
                             CX_RDP_CAPABILITY_DRIVE_REDIRECTION |
-                            CX_RDP_CAPABILITY_KEYBOARD_HOOK;
+                            CX_RDP_CAPABILITY_KEYBOARD_HOOK |
+                            CX_RDP_CAPABILITY_DISPLAY_SCALE |
+                            CX_RDP_CAPABILITY_SECURITY_MODE;
     if (has_native_audio_backend())
         capabilities |= CX_RDP_CAPABILITY_AUDIO_PLAYBACK | CX_RDP_CAPABILITY_MICROPHONE;
     return capabilities;
@@ -2245,6 +2289,75 @@ CX_RDP_API int cxrdp_set_keyboard_options(
     }
 
     session->apply_key_combinations_remotely = apply_key_combinations_remotely != 0;
+    return 0;
+}
+
+CX_RDP_API int cxrdp_set_display_scale(
+    void* handle,
+    uint32_t desktop_scale_factor,
+    uint32_t device_scale_factor)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session)
+        return -1;
+
+    if (session->running)
+    {
+        session->last_error = "RDP display scale must be configured before connecting.";
+        return -2;
+    }
+
+    if (desktop_scale_factor < 100u)
+        desktop_scale_factor = 100u;
+    else if (desktop_scale_factor > 500u)
+        desktop_scale_factor = 500u;
+
+    if (device_scale_factor != 100u && device_scale_factor != 140u && device_scale_factor != 180u)
+    {
+        device_scale_factor = desktop_scale_factor >= 180u
+            ? 180u
+            : (desktop_scale_factor >= 140u ? 140u : 100u);
+    }
+
+    session->desktop_scale_factor = desktop_scale_factor;
+    session->device_scale_factor = device_scale_factor;
+    return 0;
+}
+
+CX_RDP_API int cxrdp_set_security_mode(
+    void* handle,
+    const char* preferred_mode,
+    int allow_fallback)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session)
+        return -1;
+
+    if (session->running)
+    {
+        session->last_error = "RDP security mode must be configured before connecting.";
+        return -2;
+    }
+
+    std::string normalized;
+    if (preferred_mode)
+    {
+        for (const char* p = preferred_mode; *p; ++p)
+        {
+            unsigned char ch = static_cast<unsigned char>(*p);
+            if (ch >= 'A' && ch <= 'Z')
+                normalized.push_back(static_cast<char>(ch - 'A' + 'a'));
+            else if (ch > ' ')
+                normalized.push_back(static_cast<char>(ch));
+        }
+    }
+
+    if (normalized == "negotiate" || normalized == "nla" || normalized == "tls" || normalized == "rdp")
+        session->preferred_security_mode = normalized;
+    else
+        session->preferred_security_mode.clear();
+
+    session->allow_security_fallback = allow_fallback != 0;
     return 0;
 }
 

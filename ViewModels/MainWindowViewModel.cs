@@ -2538,6 +2538,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
             return;
 
         var rdp = new RdpViewModel(session, password);
+        rdp.SecurityModeConnected += mode => RememberRdpSecurityMode(session, mode);
         var tab = new TerminalTabViewModel(session, rdp);
         tab.CloseRequested += CloseTab;
         tab.PropertyChanged += OnTerminalTabPropertyChanged;
@@ -3563,6 +3564,21 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
 
         foreach (var tab in Tabs.Where(tab => tab.Session.Id == session.Id))
             tab.Session.PrivateKeyPassphrase = encrypted;
+    }
+
+    private void RememberRdpSecurityMode(SessionInfo session, string mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode) ||
+            string.Equals(session.RdpLastSuccessfulSecurityMode, mode, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        session.RdpLastSuccessfulSecurityMode = mode;
+        _sessionTreeVm.UpdateSessionSecret(session.Id, saved => saved.RdpLastSuccessfulSecurityMode = mode);
+
+        foreach (var tab in Tabs.Where(tab => tab.Session.Id == session.Id))
+            tab.Session.RdpLastSuccessfulSecurityMode = mode;
     }
 
     private void SaveProxyPrivateKeyPassphrase(SessionInfo session, ProxySettings proxy, string passphrase)
