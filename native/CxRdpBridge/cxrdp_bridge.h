@@ -20,8 +20,10 @@ typedef void (*cxrdp_frame_callback)(void* user_data, int width, int height, int
 typedef void (*cxrdp_status_callback)(void* user_data, const char* message);
 typedef void (*cxrdp_disconnect_callback)(void* user_data);
 typedef void (*cxrdp_clipboard_text_callback)(void* user_data, const char* text);
+typedef void (*cxrdp_clipboard_image_callback)(void* user_data, uint32_t image_format, const uint8_t* data, uint32_t length);
+typedef void (*cxrdp_clipboard_files_callback)(void* user_data, const char* file_paths_newline_separated);
 
-#define CX_RDP_BRIDGE_API_VERSION 6u
+#define CX_RDP_BRIDGE_API_VERSION 8u
 #define CX_RDP_CAPABILITY_CLIPBOARD 0x00000001u
 #define CX_RDP_CAPABILITY_DRIVE_REDIRECTION 0x00000002u
 #define CX_RDP_CAPABILITY_AUDIO_PLAYBACK 0x00000004u
@@ -29,6 +31,11 @@ typedef void (*cxrdp_clipboard_text_callback)(void* user_data, const char* text)
 #define CX_RDP_CAPABILITY_KEYBOARD_HOOK 0x00000010u
 #define CX_RDP_CAPABILITY_DISPLAY_SCALE 0x00000020u
 #define CX_RDP_CAPABILITY_SECURITY_MODE 0x00000040u
+#define CX_RDP_CAPABILITY_CLIPBOARD_IMAGE 0x00000080u
+#define CX_RDP_CAPABILITY_CLIPBOARD_FILES 0x00000100u
+
+#define CX_RDP_CLIPBOARD_IMAGE_PNG 1u
+#define CX_RDP_CLIPBOARD_IMAGE_DIB 2u
 
 #define CX_RDP_AUDIO_PLAY_LOCAL 0
 #define CX_RDP_AUDIO_PLAY_REMOTE 1
@@ -59,7 +66,16 @@ CX_RDP_API void cxrdp_send_pointer(void* handle, uint16_t flags, uint16_t x, uin
 CX_RDP_API void cxrdp_send_key(void* handle, uint32_t key, int down);
 CX_RDP_API void cxrdp_send_unicode_key(void* handle, uint16_t code, int down);
 CX_RDP_API void cxrdp_set_clipboard_callback(void* handle, cxrdp_clipboard_text_callback clipboard_text_callback);
+CX_RDP_API void cxrdp_set_clipboard_image_callback(void* handle, cxrdp_clipboard_image_callback clipboard_image_callback);
+CX_RDP_API void cxrdp_set_clipboard_files_callback(void* handle, cxrdp_clipboard_files_callback clipboard_files_callback);
 CX_RDP_API void cxrdp_set_clipboard_text(void* handle, const char* text);
+CX_RDP_API void cxrdp_set_clipboard_image(
+    void* handle,
+    const uint8_t* png_data,
+    uint32_t png_length,
+    const uint8_t* dib_data,
+    uint32_t dib_length);
+CX_RDP_API void cxrdp_set_clipboard_files(void* handle, const char* file_paths_newline_separated);
 CX_RDP_API int cxrdp_set_drive_redirection(
     void* handle,
     int enabled,

@@ -29,16 +29,22 @@ public sealed class RdpFramebufferEventArgs : EventArgs
 public sealed class RdpBridgeClient : IDisposable
 {
     private const string LibraryName = "CxRdpBridge";
+    public const uint ClipboardImageFormatPng = 1;
+    public const uint ClipboardImageFormatDib = 2;
     private const uint DriveRedirectionCapability = 0x00000002;
     private const uint AudioPlaybackCapability = 0x00000004;
     private const uint MicrophoneCapability = 0x00000008;
     private const uint KeyboardHookCapability = 0x00000010;
     private const uint DisplayScaleCapability = 0x00000020;
     private const uint SecurityModeCapability = 0x00000040;
+    private const uint ClipboardImageCapability = 0x00000080;
+    private const uint ClipboardFilesCapability = 0x00000100;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
     private const uint SecurityModeApiVersion = 6;
+    private const uint ClipboardImageApiVersion = 7;
+    private const uint ClipboardFilesApiVersion = 8;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -47,6 +53,10 @@ public sealed class RdpBridgeClient : IDisposable
     private readonly StatusCallback _statusCallback;
     private readonly DisconnectCallback _disconnectCallback;
     private readonly ClipboardTextCallback _clipboardTextCallback;
+    private readonly ClipboardImageCallback _clipboardImageCallback;
+    private readonly ClipboardFilesCallback _clipboardFilesCallback;
+    private bool _supportsClipboardImage;
+    private bool _supportsClipboardFiles;
     private IntPtr _handle;
     private SshClient? _sshTunnelClient;
     private ForwardedPortLocal? _sshTunnelPort;
@@ -62,6 +72,8 @@ public sealed class RdpBridgeClient : IDisposable
     public event Action<string>? StatusChanged;
     public event Action? Disconnected;
     public event Action<string>? ClipboardTextReceived;
+    public event Action<uint, byte[]>? ClipboardImageReceived;
+    public event Action<string[]>? ClipboardFilesReceived;
     public event Action<string>? SecurityModeConnected;
 
     public static string DebugLogPath => Path.Combine(GetDebugLogDirectory(), "rdp-debug.log");
@@ -81,6 +93,8 @@ public sealed class RdpBridgeClient : IDisposable
         _statusCallback = OnStatus;
         _disconnectCallback = OnDisconnected;
         _clipboardTextCallback = OnClipboardText;
+        _clipboardImageCallback = OnClipboardImage;
+        _clipboardFilesCallback = OnClipboardFiles;
     }
 
     public void Connect(SessionInfo session, string? password, int? desktopWidth = null, int? desktopHeight = null, int desktopScaleFactor = 100)
@@ -143,6 +157,14 @@ public sealed class RdpBridgeClient : IDisposable
 
         var nativeApiVersion = GetNativeApiVersion();
         var nativeCapabilities = GetNativeCapabilities();
+        _supportsClipboardImage = nativeApiVersion >= ClipboardImageApiVersion &&
+                                  (nativeCapabilities & ClipboardImageCapability) != 0;
+        if (_supportsClipboardImage)
+            NativeMethods.cxrdp_set_clipboard_image_callback(_handle, _clipboardImageCallback);
+        _supportsClipboardFiles = nativeApiVersion >= ClipboardFilesApiVersion &&
+                                  (nativeCapabilities & ClipboardFilesCapability) != 0;
+        if (_supportsClipboardFiles)
+            NativeMethods.cxrdp_set_clipboard_files_callback(_handle, _clipboardFilesCallback);
         DebugLog($"native bridge apiVersion={nativeApiVersion} capabilities=0x{nativeCapabilities:X8}");
         if (session.RdpRedirectDrives)
         {
@@ -387,6 +409,29 @@ public sealed class RdpBridgeClient : IDisposable
         DebugLogDetailed($"clipboard set local length={text?.Length ?? 0}");
         if (_handle != IntPtr.Zero)
             NativeMethods.cxrdp_set_clipboard_text(_handle, text ?? string.Empty);
+    }
+
+    public void SetClipboardImage(byte[]? pngData, byte[]? dibData)
+    {
+        DebugLogDetailed($"clipboard set local image png={pngData?.Length ?? 0} dib={dibData?.Length ?? 0}");
+        if (_handle == IntPtr.Zero || !_supportsClipboardImage)
+            return;
+
+        NativeMethods.cxrdp_set_clipboard_image(
+            _handle,
+            pngData,
+            (uint)(pngData?.Length ?? 0),
+            dibData,
+            (uint)(dibData?.Length ?? 0));
+    }
+
+    public void SetClipboardFiles(string[] filePaths)
+    {
+        DebugLogDetailed($"clipboard set local files count={filePaths?.Length ?? 0}");
+        if (_handle == IntPtr.Zero || !_supportsClipboardFiles || filePaths == null || filePaths.Length == 0)
+            return;
+
+        NativeMethods.cxrdp_set_clipboard_files(_handle, string.Join("\n", filePaths));
     }
 
     public void Disconnect()
@@ -724,6 +769,34 @@ public sealed class RdpBridgeClient : IDisposable
         ClipboardTextReceived?.Invoke(value);
     }
 
+    private void OnClipboardImage(IntPtr userData, uint imageFormat, IntPtr data, uint length)
+    {
+        if (data == IntPtr.Zero || length == 0)
+            return;
+
+        var bytes = new byte[length];
+        Marshal.Copy(data, bytes, 0, (int)length);
+        DebugLogDetailed($"clipboard received remote image format={imageFormat} bytes={length}");
+        ClipboardImageReceived?.Invoke(imageFormat, bytes);
+    }
+
+    private void OnClipboardFiles(IntPtr userData, IntPtr pathsPtr)
+    {
+        if (pathsPtr == IntPtr.Zero)
+            return;
+
+        var raw = Marshal.PtrToStringUTF8(pathsPtr);
+        if (string.IsNullOrWhiteSpace(raw))
+            return;
+
+        var paths = raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (paths.Length == 0)
+            return;
+
+        DebugLogDetailed($"clipboard received remote files count={paths.Length}");
+        ClipboardFilesReceived?.Invoke(paths);
+    }
+
     private static string GetDebugLogDirectory()
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -840,6 +913,12 @@ public sealed class RdpBridgeClient : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void ClipboardTextCallback(IntPtr userData, IntPtr text);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void ClipboardImageCallback(IntPtr userData, uint imageFormat, IntPtr data, uint length);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void ClipboardFilesCallback(IntPtr userData, IntPtr paths);
+
     private static class NativeMethods
     {
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
@@ -866,6 +945,16 @@ public sealed class RdpBridgeClient : IDisposable
         public static extern void cxrdp_set_clipboard_callback(
             IntPtr handle,
             ClipboardTextCallback clipboardTextCallback);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_set_clipboard_image_callback(
+            IntPtr handle,
+            ClipboardImageCallback clipboardImageCallback);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_set_clipboard_files_callback(
+            IntPtr handle,
+            ClipboardFilesCallback clipboardFilesCallback);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int cxrdp_connect(
@@ -894,6 +983,19 @@ public sealed class RdpBridgeClient : IDisposable
         public static extern void cxrdp_set_clipboard_text(
             IntPtr handle,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_set_clipboard_image(
+            IntPtr handle,
+            byte[]? pngData,
+            uint pngLength,
+            byte[]? dibData,
+            uint dibLength);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_set_clipboard_files(
+            IntPtr handle,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string filePathsNewlineSeparated);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int cxrdp_set_drive_redirection(

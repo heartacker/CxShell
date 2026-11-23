@@ -25,6 +25,9 @@ public partial class RdpView : UserControl
     private bool _applyingRemoteClipboardText;
     private bool _hasKeyboardFocus;
     private string? _lastSyncedClipboardText;
+    private string? _lastSyncedClipboardImageHash;
+    private string? _lastSyncedClipboardFilesKey;
+    private WindowsClipboardListener? _clipboardListener;
     private WindowsRdpShortcutHook? _systemShortcutHook;
     private double _pendingWheelY;
 
@@ -37,6 +40,7 @@ public partial class RdpView : UserControl
         {
             _isAttached = true;
             Focus();
+            StartClipboardListener();
             if (DataContext is RdpViewModel vm)
                 ScheduleStart(vm);
             UpdateSystemShortcutHook();
@@ -45,6 +49,7 @@ public partial class RdpView : UserControl
         {
             _isAttached = false;
             _hasKeyboardFocus = false;
+            StopClipboardListener();
             DisposeSystemShortcutHook();
             ReleaseTrackedModifiers();
             _pendingWheelY = 0;
@@ -73,6 +78,8 @@ public partial class RdpView : UserControl
 
         _boundVm = vm;
         vm.PropertyChanged += OnViewModelPropertyChanged;
+        vm.RemoteClipboardImageReceived += OnRemoteClipboardImageReceived;
+        vm.RemoteClipboardFilesReceived += OnRemoteClipboardFilesReceived;
         ApplyScaleMode(vm);
         UpdateSystemShortcutHook();
         if (_isAttached)
@@ -105,8 +112,44 @@ public partial class RdpView : UserControl
             return;
 
         _boundVm.PropertyChanged -= OnViewModelPropertyChanged;
+        _boundVm.RemoteClipboardImageReceived -= OnRemoteClipboardImageReceived;
+        _boundVm.RemoteClipboardFilesReceived -= OnRemoteClipboardFilesReceived;
         _boundVm = null;
         DisposeSystemShortcutHook();
+    }
+
+    private void StartClipboardListener()
+    {
+        if (_clipboardListener != null || !OperatingSystem.IsWindows())
+            return;
+
+        _clipboardListener = new WindowsClipboardListener();
+        _clipboardListener.ClipboardChanged += OnLocalClipboardChanged;
+    }
+
+    private void StopClipboardListener()
+    {
+        if (_clipboardListener == null)
+            return;
+
+        _clipboardListener.ClipboardChanged -= OnLocalClipboardChanged;
+        _clipboardListener.Dispose();
+        _clipboardListener = null;
+    }
+
+    private void OnLocalClipboardChanged()
+    {
+        Dispatcher.UIThread.Post(() => _ = SyncLocalClipboardToRemoteAsync());
+    }
+
+    private void OnRemoteClipboardImageReceived(uint imageFormat, byte[] data)
+    {
+        _ = ApplyRemoteClipboardImageAsync(imageFormat, data);
+    }
+
+    private void OnRemoteClipboardFilesReceived(string[] paths)
+    {
+        _ = ApplyRemoteClipboardFilesAsync(paths);
     }
 
     private void UpdateSystemShortcutHook()
@@ -388,21 +431,73 @@ public partial class RdpView : UserControl
         if (DataContext is not RdpViewModel vm)
             return;
 
-        var text = await TryReadLocalClipboardTextAsync();
-        if (string.IsNullOrEmpty(text))
-            return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
 
-        if (!vm.IsClipboardChannelReady)
+        if (vm.IsClipboardChannelReady)
         {
-            vm.SetClipboardText(text);
-            _lastSyncedClipboardText = text;
-            await PasteLocalClipboardTextAsync(text);
+            var files = await RdpClipboardImageHelper.TryReadLocalFilesAsync(clipboard);
+            if (files is { Length: > 0 })
+            {
+                var filesKey = string.Join("\n", files);
+                var alreadySynced = string.Equals(filesKey, _lastSyncedClipboardFilesKey, StringComparison.Ordinal);
+                if (!alreadySynced)
+                {
+                    vm.SetClipboardFiles(files);
+                    _lastSyncedClipboardFilesKey = filesKey;
+                    _lastSyncedClipboardText = null;
+                    _lastSyncedClipboardImageHash = null;
+                    await Task.Delay(150);
+                }
+
+                SendClipboardPasteShortcut(vm);
+                return;
+            }
+        }
+
+        var text = await TryReadLocalClipboardTextAsync();
+        if (!string.IsNullOrEmpty(text))
+        {
+            if (!vm.IsClipboardChannelReady)
+            {
+                vm.SetClipboardText(text);
+                _lastSyncedClipboardText = text;
+                _lastSyncedClipboardImageHash = null;
+                _lastSyncedClipboardFilesKey = null;
+                await PasteLocalClipboardTextAsync(text);
+                return;
+            }
+
+            var alreadySynced = string.Equals(text, _lastSyncedClipboardText, StringComparison.Ordinal);
+            if (!alreadySynced)
+            {
+                vm.SetClipboardText(text);
+                _lastSyncedClipboardText = text;
+                _lastSyncedClipboardImageHash = null;
+                _lastSyncedClipboardFilesKey = null;
+                await Task.Delay(150);
+            }
+
+            SendClipboardPasteShortcut(vm);
             return;
         }
 
-        vm.SetClipboardText(text);
-        _lastSyncedClipboardText = text;
-        await Task.Delay(300);
+        if (!vm.IsClipboardChannelReady)
+            return;
+
+        var image = await RdpClipboardImageHelper.TryReadLocalImageAsync(clipboard);
+        if (image == null)
+            return;
+
+        var imageAlreadySynced = string.Equals(image.Hash, _lastSyncedClipboardImageHash, StringComparison.Ordinal);
+        if (!imageAlreadySynced)
+        {
+            vm.SetClipboardImage(image.PngBytes, image.DibBytes);
+            _lastSyncedClipboardImageHash = image.Hash;
+            _lastSyncedClipboardText = null;
+            _lastSyncedClipboardFilesKey = null;
+            await Task.Delay(150);
+        }
+
         SendClipboardPasteShortcut(vm);
     }
 
@@ -465,12 +560,43 @@ public partial class RdpView : UserControl
         if (_applyingRemoteClipboardText || DataContext is not RdpViewModel vm || !vm.IsClipboardChannelReady)
             return;
 
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+
+        var files = await RdpClipboardImageHelper.TryReadLocalFilesAsync(clipboard);
+        if (files is { Length: > 0 })
+        {
+            var filesKey = string.Join("\n", files);
+            if (string.Equals(filesKey, _lastSyncedClipboardFilesKey, StringComparison.Ordinal))
+                return;
+
+            vm.SetClipboardFiles(files);
+            _lastSyncedClipboardFilesKey = filesKey;
+            _lastSyncedClipboardText = null;
+            _lastSyncedClipboardImageHash = null;
+            return;
+        }
+
         var text = await TryReadLocalClipboardTextAsync();
-        if (text == null || string.Equals(text, _lastSyncedClipboardText, StringComparison.Ordinal))
+        if (!string.IsNullOrEmpty(text))
+        {
+            if (string.Equals(text, _lastSyncedClipboardText, StringComparison.Ordinal))
+                return;
+
+            vm.SetClipboardText(text);
+            _lastSyncedClipboardText = text;
+            _lastSyncedClipboardImageHash = null;
+            _lastSyncedClipboardFilesKey = null;
+            return;
+        }
+
+        var image = await RdpClipboardImageHelper.TryReadLocalImageAsync(clipboard);
+        if (image == null || string.Equals(image.Hash, _lastSyncedClipboardImageHash, StringComparison.Ordinal))
             return;
 
-        vm.SetClipboardText(text);
-        _lastSyncedClipboardText = text;
+        vm.SetClipboardImage(image.PngBytes, image.DibBytes);
+        _lastSyncedClipboardImageHash = image.Hash;
+        _lastSyncedClipboardText = null;
+        _lastSyncedClipboardFilesKey = null;
     }
 
     private async Task ApplyRemoteClipboardTextAsync(string text)
@@ -483,6 +609,55 @@ public partial class RdpView : UserControl
             {
                 await clipboard.SetTextAsync(text);
                 _lastSyncedClipboardText = text;
+                _lastSyncedClipboardImageHash = null;
+                _lastSyncedClipboardFilesKey = null;
+            }
+        }
+        catch
+        {
+            // Clipboard access may fail on some desktop backends.
+        }
+        finally
+        {
+            _applyingRemoteClipboardText = false;
+        }
+    }
+
+    private async Task ApplyRemoteClipboardImageAsync(uint imageFormat, byte[] data)
+    {
+        _applyingRemoteClipboardText = true;
+        try
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (await RdpClipboardImageHelper.TryWriteLocalImageAsync(clipboard, imageFormat, data))
+            {
+                _lastSyncedClipboardImageHash = RdpClipboardImageHelper.ComputeHash(
+                    imageFormat == RdpBridgeClient.ClipboardImageFormatPng ? data : null,
+                    imageFormat == RdpBridgeClient.ClipboardImageFormatDib ? data : null);
+                _lastSyncedClipboardText = null;
+                _lastSyncedClipboardFilesKey = null;
+            }
+        }
+        catch
+        {
+            // Clipboard access may fail on some desktop backends.
+        }
+        finally
+        {
+            _applyingRemoteClipboardText = false;
+        }
+    }
+
+    private async Task ApplyRemoteClipboardFilesAsync(string[] paths)
+    {
+        _applyingRemoteClipboardText = true;
+        try
+        {
+            if (await RdpClipboardImageHelper.TryWriteLocalFilesAsync(paths))
+            {
+                _lastSyncedClipboardFilesKey = string.Join("\n", paths);
+                _lastSyncedClipboardText = null;
+                _lastSyncedClipboardImageHash = null;
             }
         }
         catch

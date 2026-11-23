@@ -49,6 +49,8 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         _client.FramebufferUpdated += OnFramebufferUpdated;
         _client.StatusChanged += message => Dispatcher.UIThread.Post(() => HandleStatus(message));
         _client.ClipboardTextReceived += OnClipboardTextReceived;
+        _client.ClipboardImageReceived += OnClipboardImageReceived;
+        _client.ClipboardFilesReceived += OnClipboardFilesReceived;
         _client.SecurityModeConnected += mode => Dispatcher.UIThread.Post(() => SecurityModeConnected?.Invoke(mode));
         _client.Disconnected += () => Dispatcher.UIThread.Post(() =>
         {
@@ -322,10 +324,25 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         }
     }
 
+    public event Action<uint, byte[]>? RemoteClipboardImageReceived;
+    public event Action<string[]>? RemoteClipboardFilesReceived;
+
     public void SetClipboardText(string text)
     {
         if (IsConnected)
             _client.SetClipboardText(text);
+    }
+
+    public void SetClipboardImage(byte[]? pngData, byte[]? dibData)
+    {
+        if (IsConnected)
+            _client.SetClipboardImage(pngData, dibData);
+    }
+
+    public void SetClipboardFiles(string[] paths)
+    {
+        if (IsConnected)
+            _client.SetClipboardFiles(paths);
     }
 
     [RelayCommand]
@@ -400,12 +417,24 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         Dispatcher.UIThread.Post(() => RemoteClipboardText = text);
     }
 
+    private void OnClipboardImageReceived(uint imageFormat, byte[] data)
+    {
+        Dispatcher.UIThread.Post(() => RemoteClipboardImageReceived?.Invoke(imageFormat, data));
+    }
+
+    private void OnClipboardFilesReceived(string[] paths)
+    {
+        Dispatcher.UIThread.Post(() => RemoteClipboardFilesReceived?.Invoke(paths));
+    }
+
     public void Dispose()
     {
         _resizeReconnectCts?.Cancel();
         _resizeReconnectCts?.Dispose();
         _client.FramebufferUpdated -= OnFramebufferUpdated;
         _client.ClipboardTextReceived -= OnClipboardTextReceived;
+        _client.ClipboardImageReceived -= OnClipboardImageReceived;
+        _client.ClipboardFilesReceived -= OnClipboardFilesReceived;
         _client.Dispose();
     }
 }
