@@ -18,6 +18,7 @@ public partial class RdpMonitorWindow : Window
     private Rect _virtualSliceRect;
     private bool _keepTaskbar;
     private ushort _buttonFlags;
+    private double _pendingWheelY;
 
     public RdpMonitorWindow(
         RdpView ownerView,
@@ -40,6 +41,7 @@ public partial class RdpMonitorWindow : Window
         AddHandler(DragDrop.DragOverEvent, (_, e) => _ownerView.ForwardDragOver(e));
         AddHandler(DragDrop.DropEvent, (_, e) => _ownerView.ForwardDrop(e));
         GotFocus += (_, _) => _ownerView.ForwardGotFocus();
+        LostFocus += (_, _) => _ownerView.ForwardLostFocus();
 
         var scalePct = (int)Math.Round(screen.Scaling * 100);
         MonitorTitleText.Text = $"屏幕 {monitorIndex + 1} · {screen.Bounds.Width}×{screen.Bounds.Height} · {scalePct}%";
@@ -74,6 +76,11 @@ public partial class RdpMonitorWindow : Window
         SliceSurface.Source = _vm.Framebuffer;
         SliceSurface.SourceRect = virtualSliceRect;
         SliceSurface.InvalidateVisual();
+    }
+
+    public void SetRemoteCursor(Cursor cursor)
+    {
+        SliceSurface.Cursor = cursor;
     }
 
     private void ApplyWindowGeometry()
@@ -184,15 +191,14 @@ public partial class RdpMonitorWindow : Window
         if (!TryMapPointer(e, out var x, out var y))
             return;
 
-        var delta = (int)Math.Round(e.Delta.Y * 120);
-        if (delta == 0)
-            return;
+        var notches = CxShell.Services.RdpWheelInput.TakeNotches(ref _pendingWheelY, e.Delta.Y);
+        if (notches != 0)
+        {
+            var wheelFlag = CxShell.Services.RdpWheelInput.GetNotchFlags(notches);
+            for (var i = 0; i < Math.Abs(notches); i++)
+                _vm.SendPointer(wheelFlag, x, y);
+        }
 
-        var step = (ushort)(Math.Min(Math.Abs(delta), 0xFF) & 0xFF);
-        ushort flags = (ushort)(0x0200 | step);
-        if (delta < 0)
-            flags |= 0x0100;
-
-        _vm.SendPointer(flags, x, y);
+        e.Handled = true;
     }
 }

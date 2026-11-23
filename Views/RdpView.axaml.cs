@@ -115,8 +115,20 @@ public partial class RdpView : UserControl
             ApplyScaleMode(_boundVm);
         }
 
-        if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.IsConnected) && _boundVm.IsConnected)
-            SyncLocalLockKeysToRemote();
+        if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.IsConnected))
+        {
+            if (_boundVm.IsConnected)
+            {
+                SyncLocalLockKeysToRemote();
+            }
+            else
+            {
+                CloseAllSecondaryMonitorWindows();
+                _primarySliceRect = null;
+                PrimarySliceSurface.IsVisible = false;
+                FramebufferImage.IsVisible = true;
+            }
+        }
         if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.IsClipboardChannelReady) && _boundVm.IsClipboardChannelReady)
             _ = SyncLocalClipboardToRemoteAsync();
         if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.RemoteClipboardText))
@@ -350,7 +362,7 @@ public partial class RdpView : UserControl
         if (kind == 1)
         {
             DisposeCustomRemoteCursor();
-            FramebufferImage.Cursor = new Cursor(StandardCursorType.None);
+            ApplyCursorToAllSurfaces(new Cursor(StandardCursorType.None));
             return;
         }
 
@@ -372,7 +384,7 @@ public partial class RdpView : UserControl
                 var clampedHotX = Math.Clamp(hotX, 0, width - 1);
                 var clampedHotY = Math.Clamp(hotY, 0, height - 1);
                 var cursor = new Cursor(bitmap, new PixelPoint(clampedHotX, clampedHotY));
-                FramebufferImage.Cursor = cursor;
+                ApplyCursorToAllSurfaces(cursor);
                 DisposeCustomRemoteCursor();
                 _customRemoteCursor = cursor;
                 _customRemoteCursorBitmap = bitmap;
@@ -385,7 +397,15 @@ public partial class RdpView : UserControl
         }
 
         DisposeCustomRemoteCursor();
-        FramebufferImage.Cursor = new Cursor(StandardCursorType.Arrow);
+        ApplyCursorToAllSurfaces(new Cursor(StandardCursorType.Arrow));
+    }
+
+    private void ApplyCursorToAllSurfaces(Cursor cursor)
+    {
+        FramebufferImage.Cursor = cursor;
+        PrimarySliceSurface.Cursor = cursor;
+        foreach (var win in _secondaryMonitorWindows.Values)
+            win.SetRemoteCursor(cursor);
     }
 
     private void DisposeCustomRemoteCursor()
@@ -510,7 +530,10 @@ public partial class RdpView : UserControl
             ConfigureInitialDisplay(vm, e.NewSize);
             if (_isAttached)
                 vm.Start();
-            vm.RequestViewportResize(e.NewSize, GetRenderScaling());
+            if (_selectedMonitorIndices.Count > 1)
+                ApplySelectedMonitorLayout();
+            else
+                vm.RequestViewportResize(e.NewSize, GetRenderScaling());
         }
     }
 
@@ -602,7 +625,12 @@ public partial class RdpView : UserControl
     private void OnTopLevelScalingChanged(object? sender, EventArgs e)
     {
         if (DataContext is RdpViewModel vm)
-            vm.RequestViewportResize(RdpViewport.Bounds.Size, GetRenderScaling());
+        {
+            if (_selectedMonitorIndices.Count > 1)
+                ApplySelectedMonitorLayout();
+            else
+                vm.RequestViewportResize(RdpViewport.Bounds.Size, GetRenderScaling());
+        }
     }
 
     private void SubscribeTopLevelScaling()
@@ -724,6 +752,11 @@ public partial class RdpView : UserControl
     {
         SyncLocalLockKeysToRemote();
         _ = SyncLocalClipboardToRemoteAsync();
+    }
+
+    internal void ForwardLostFocus()
+    {
+        ReleaseTrackedModifiers();
     }
 
     private void SendPointer(PointerEventArgs e, ushort flags)
