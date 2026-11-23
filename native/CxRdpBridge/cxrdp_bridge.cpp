@@ -44,8 +44,10 @@ extern "C" {
 #include <freerdp/channels/disp.h>
 #include <freerdp/channels/drdynvc.h>
 #include <freerdp/channels/rdpdr.h>
+#include <freerdp/channels/rdpgfx.h>
 #include <freerdp/channels/rdpsnd.h>
 #include <freerdp/gdi/gdi.h>
+#include <freerdp/gdi/gfx.h>
 #include <freerdp/input.h>
 #include <freerdp/event.h>
 #include <freerdp/error.h>
@@ -2142,6 +2144,14 @@ void cx_channel_connected(void* context, const ChannelConnectedEventArgs* e)
         }
         notify_status(session, "RDP dynamic display channel connected.");
     }
+    else if (std::strcmp(e->name, RDPGFX_DVC_CHANNEL_NAME) == 0)
+    {
+        if (rdp_context->gdi)
+        {
+            gdi_graphics_pipeline_init(rdp_context->gdi, static_cast<RdpgfxClientContext*>(e->pInterface));
+            notify_status(session, "RDP graphics pipeline (RDPGFX) connected.");
+        }
+    }
 }
 
 void cx_channel_disconnected(void* context, const ChannelDisconnectedEventArgs* e)
@@ -2163,6 +2173,11 @@ void cx_channel_disconnected(void* context, const ChannelDisconnectedEventArgs* 
         std::lock_guard<std::mutex> lock(session->disp_mutex);
         if (session->disp == static_cast<DispClientContext*>(e->pInterface))
             session->disp = nullptr;
+    }
+    else if (std::strcmp(e->name, RDPGFX_DVC_CHANNEL_NAME) == 0)
+    {
+        if (rdp_context->gdi)
+            gdi_graphics_pipeline_uninit(rdp_context->gdi, static_cast<RdpgfxClientContext*>(e->pInterface));
     }
 }
 
@@ -2506,8 +2521,17 @@ void connection_thread(CxRdpSession* session)
             freerdp_settings_set_bool(settings, FreeRDP_LogonErrors, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_LongCredentialsSupported, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_SoftwareGdi, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, FALSE);
+            freerdp_settings_set_bool(settings, FreeRDP_FastPathOutput, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_FrameMarkerCommandEnabled, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_SupportGraphicsPipeline, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxProgressive, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxProgressiveV2, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxH264, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444v2, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_GfxThinClient, FALSE);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxSmallCache, FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_NegotiateSecurityLayer, profile.negotiate ? TRUE : FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, profile.nla ? TRUE : FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_TlsSecurity, profile.tls ? TRUE : FALSE);
