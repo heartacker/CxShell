@@ -595,6 +595,7 @@ public class SessionInfo
     public string RdpSecurityMode { get; set; } = "Auto";
     public string RdpLastSuccessfulSecurityMode { get; set; } = string.Empty;
     public bool RdpApplyKeyCombinations { get; set; } = true;
+    public bool RdpEnableGraphicsAcceleration { get; set; } = true;
     public bool RdpRedirectDrives { get; set; }
     public string RdpDriveName { get; set; } = "CxShell";
     public string RdpDrivePath { get; set; } = string.Empty;

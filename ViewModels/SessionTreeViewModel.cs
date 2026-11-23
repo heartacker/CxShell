@@ -247,6 +247,7 @@ public partial class SessionTreeViewModel : ObservableObject
         target.RdpScreenScale = source.RdpScreenScale;
         target.RdpColorQuality = source.RdpColorQuality;
         target.RdpApplyKeyCombinations = source.RdpApplyKeyCombinations;
+        target.RdpEnableGraphicsAcceleration = source.RdpEnableGraphicsAcceleration;
         target.RdpRedirectDrives = source.RdpRedirectDrives;
         target.RdpDriveName = source.RdpDriveName;
         target.RdpDrivePath = source.RdpDrivePath;
@@ -1163,6 +1164,7 @@ public partial class SessionTreeViewModel : ObservableObject
             RdpScreenScale = source.RdpScreenScale,
             RdpColorQuality = source.RdpColorQuality,
             RdpApplyKeyCombinations = source.RdpApplyKeyCombinations,
+            RdpEnableGraphicsAcceleration = source.RdpEnableGraphicsAcceleration,
             RdpRedirectDrives = source.RdpRedirectDrives,
             RdpDriveName = source.RdpDriveName,
             RdpDrivePath = source.RdpDrivePath,

@@ -330,6 +330,7 @@ public partial class SessionEditViewModel : ObservableObject
     [ObservableProperty] private string _rdpColorQuality = "32";
     [ObservableProperty] private string _rdpSecurityMode = "Auto";
     [ObservableProperty] private bool _rdpApplyKeyCombinations = true;
+    [ObservableProperty] private bool _rdpEnableGraphicsAcceleration = true;
     [ObservableProperty] private bool _rdpRedirectDrives;
     [ObservableProperty] private string _rdpDriveName = "CxShell";
     [ObservableProperty] private string _rdpDrivePath = string.Empty;
@@ -1514,6 +1515,7 @@ public partial class SessionEditViewModel : ObservableObject
         RdpColorQuality = string.IsNullOrWhiteSpace(session.RdpColorQuality) ? "32" : session.RdpColorQuality;
         RdpSecurityMode = string.IsNullOrWhiteSpace(session.RdpSecurityMode) ? "Auto" : session.RdpSecurityMode;
         RdpApplyKeyCombinations = session.RdpApplyKeyCombinations;
+        RdpEnableGraphicsAcceleration = session.RdpEnableGraphicsAcceleration;
         RdpRedirectDrives = session.RdpRedirectDrives;
         RdpDriveName = string.IsNullOrWhiteSpace(session.RdpDriveName) ? "CxShell" : session.RdpDriveName;
         RdpDrivePath = session.RdpDrivePath ?? string.Empty;
@@ -1818,6 +1820,7 @@ public partial class SessionEditViewModel : ObservableObject
         session.RdpColorQuality = RdpColorQuality;
         session.RdpSecurityMode = string.IsNullOrWhiteSpace(RdpSecurityMode) ? "Auto" : RdpSecurityMode;
         session.RdpApplyKeyCombinations = RdpApplyKeyCombinations;
+        session.RdpEnableGraphicsAcceleration = RdpEnableGraphicsAcceleration;
         session.RdpRedirectDrives = RdpRedirectDrives;
         session.RdpDriveName = string.IsNullOrWhiteSpace(RdpDriveName) ? "CxShell" : RdpDriveName.Trim();
         session.RdpDrivePath = RdpRedirectDrives ? RdpDrivePath.Trim() : string.Empty;

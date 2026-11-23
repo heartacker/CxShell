@@ -109,6 +109,7 @@ struct CxRdpSession
     int audio_playback_mode = CX_RDP_AUDIO_DO_NOT_PLAY;
     bool microphone_enabled = false;
     bool apply_key_combinations_remotely = true;
+    bool graphics_acceleration_enabled = true;
     uint32_t desktop_scale_factor = 100;
     uint32_t device_scale_factor = 100;
     std::string preferred_security_mode;
@@ -2738,16 +2739,17 @@ void connection_thread(CxRdpSession* session)
             freerdp_settings_set_bool(settings, FreeRDP_LogonNotify, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_LogonErrors, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_LongCredentialsSupported, TRUE);
+            const BOOL gfxEnabled = session->graphics_acceleration_enabled ? TRUE : FALSE;
             freerdp_settings_set_bool(settings, FreeRDP_SoftwareGdi, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_FastPathOutput, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_FrameMarkerCommandEnabled, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_SupportGraphicsPipeline, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_GfxProgressive, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_GfxProgressiveV2, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_GfxH264, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444, TRUE);
-            freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444v2, TRUE);
+            freerdp_settings_set_bool(settings, FreeRDP_SupportGraphicsPipeline, gfxEnabled);
+            freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, gfxEnabled);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxProgressive, gfxEnabled);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxProgressiveV2, gfxEnabled);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxH264, gfxEnabled);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444, gfxEnabled);
+            freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444v2, gfxEnabled);
             freerdp_settings_set_bool(settings, FreeRDP_GfxThinClient, FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_GfxSmallCache, FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, TRUE);
@@ -2959,7 +2961,8 @@ CX_RDP_API uint32_t cxrdp_get_capabilities(void)
            CX_RDP_CAPABILITY_DYNAMIC_DISPLAY |
            CX_RDP_CAPABILITY_POINTER_SHAPE |
            CX_RDP_CAPABILITY_DIRTY_RECT |
-           CX_RDP_CAPABILITY_CLIPBOARD_RICH_TEXT;
+           CX_RDP_CAPABILITY_CLIPBOARD_RICH_TEXT |
+           CX_RDP_CAPABILITY_GRAPHICS_OPTIONS;
 }
 
 CX_RDP_API void* cxrdp_create(void)
@@ -3393,6 +3396,24 @@ CX_RDP_API int cxrdp_set_keyboard_options(
     }
 
     session->apply_key_combinations_remotely = apply_key_combinations_remotely != 0;
+    return 0;
+}
+
+CX_RDP_API int cxrdp_set_graphics_options(
+    void* handle,
+    int enable_graphics_acceleration)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session)
+        return -1;
+
+    if (session->running)
+    {
+        set_error(session, "RDP graphics options must be configured before connecting.");
+        return -2;
+    }
+
+    session->graphics_acceleration_enabled = enable_graphics_acceleration != 0;
     return 0;
 }
 
