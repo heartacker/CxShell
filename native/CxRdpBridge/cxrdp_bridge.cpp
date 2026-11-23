@@ -2393,6 +2393,7 @@ BOOL cx_pre_connect(freerdp* instance)
     freerdp_settings_set_bool(instance->context->settings, FreeRDP_RedirectClipboard, clipboardEnabled ? TRUE : FALSE);
     freerdp_settings_set_bool(instance->context->settings, FreeRDP_SupportDynamicChannels, TRUE);
     freerdp_settings_set_bool(instance->context->settings, FreeRDP_SupportDisplayControl, TRUE);
+    freerdp_settings_set_bool(instance->context->settings, FreeRDP_UseMultimon, TRUE);
 
     if (clipboardEnabled)
     {
@@ -3030,7 +3031,8 @@ CX_RDP_API uint32_t cxrdp_get_capabilities(void)
            CX_RDP_CAPABILITY_CLIPBOARD_RICH_TEXT |
            CX_RDP_CAPABILITY_GRAPHICS_OPTIONS |
            CX_RDP_CAPABILITY_SYNC_LOCK_KEYS |
-           CX_RDP_CAPABILITY_CLIPBOARD_LOCK;
+           CX_RDP_CAPABILITY_CLIPBOARD_LOCK |
+           CX_RDP_CAPABILITY_MULTI_MONITOR;
 }
 
 CX_RDP_API void* cxrdp_create(void)
@@ -3583,6 +3585,60 @@ CX_RDP_API int cxrdp_resize_display(
     layout.DeviceScaleFactor = device_scale_factor == 180 ? 180 : (device_scale_factor == 140 ? 140 : 100);
 
     const UINT rc = disp->SendMonitorLayout(disp, 1, &layout);
+    return rc == CHANNEL_RC_OK ? 0 : -3;
+}
+
+CX_RDP_API int cxrdp_resize_monitors(
+    void* handle,
+    const CxRdpMonitorRect* monitors,
+    int count)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session || !session->connected || !monitors || count <= 0 || count > 16)
+        return -1;
+
+    DispClientContext* disp = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(session->disp_mutex);
+        disp = session->disp;
+    }
+
+    if (!disp || !disp->SendMonitorLayout)
+        return -2;
+
+    std::vector<DISPLAY_CONTROL_MONITOR_LAYOUT> layouts(static_cast<size_t>(count));
+    bool hasPrimary = false;
+    for (int i = 0; i < count; ++i)
+    {
+        const auto& src = monitors[i];
+        uint32_t w = src.width < 200u ? 200u : (src.width > 8192u ? 8192u : src.width);
+        uint32_t h = src.height < 200u ? 200u : (src.height > 8192u ? 8192u : src.height);
+        w &= ~1u;
+        h &= ~1u;
+
+        auto& dst = layouts[static_cast<size_t>(i)];
+        dst.Flags = src.is_primary != 0 ? DISPLAY_CONTROL_MONITOR_PRIMARY : 0u;
+        if (src.is_primary != 0)
+            hasPrimary = true;
+        dst.Left = src.left;
+        dst.Top = src.top;
+        dst.Width = w;
+        dst.Height = h;
+        dst.PhysicalWidth = w;
+        dst.PhysicalHeight = h;
+        dst.Orientation = ORIENTATION_LANDSCAPE;
+        dst.DesktopScaleFactor = (src.desktop_scale_factor >= 100u && src.desktop_scale_factor <= 500u)
+            ? src.desktop_scale_factor
+            : 100u;
+        dst.DeviceScaleFactor = src.device_scale_factor == 180u
+            ? 180u
+            : (src.device_scale_factor == 140u ? 140u : 100u);
+    }
+
+    if (!hasPrimary)
+        layouts[0].Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
+
+    const UINT rc = disp->SendMonitorLayout(disp, static_cast<UINT32>(count), layouts.data());
     return rc == CHANNEL_RC_OK ? 0 : -3;
 }
 

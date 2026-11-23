@@ -10,6 +10,26 @@ using Renci.SshNet;
 
 namespace CxShell.Services;
 
+public readonly record struct RdpMonitorRect(
+    int Left,
+    int Top,
+    int Width,
+    int Height,
+    int DesktopScaleFactor,
+    bool IsPrimary);
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeMonitorRect
+{
+    public int Left;
+    public int Top;
+    public uint Width;
+    public uint Height;
+    public uint DesktopScaleFactor;
+    public uint DeviceScaleFactor;
+    public int IsPrimary;
+}
+
 public sealed class RdpFramebufferEventArgs : EventArgs
 {
     public RdpFramebufferEventArgs(int width, int height, int stride, byte[] pixels)
@@ -46,6 +66,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint GraphicsOptionsCapability = 0x00002000;
     private const uint SyncLockKeysCapability = 0x00004000;
     private const uint ClipboardLockCapability = 0x00008000;
+    private const uint MultiMonitorCapability = 0x00010000;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
@@ -59,6 +80,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint GraphicsOptionsApiVersion = 13;
     private const uint SyncLockKeysApiVersion = 14;
     private const uint ClipboardLockApiVersion = 15;
+    private const uint MultiMonitorApiVersion = 16;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -76,6 +98,7 @@ public sealed class RdpBridgeClient : IDisposable
     private bool _supportsDynamicDisplay;
     private bool _supportsClipboardRichText;
     private bool _supportsSyncLockKeys;
+    private bool _supportsMultiMonitor;
     private IntPtr _handle;
     private SshClient? _sshTunnelClient;
     private ForwardedPortLocal? _sshTunnelPort;
@@ -195,6 +218,8 @@ public sealed class RdpBridgeClient : IDisposable
                                      (nativeCapabilities & ClipboardRichTextCapability) != 0;
         _supportsSyncLockKeys = nativeApiVersion >= SyncLockKeysApiVersion &&
                                 (nativeCapabilities & SyncLockKeysCapability) != 0;
+        _supportsMultiMonitor = nativeApiVersion >= MultiMonitorApiVersion &&
+                                (nativeCapabilities & MultiMonitorCapability) != 0;
         if (nativeApiVersion >= PointerShapeApiVersion &&
             (nativeCapabilities & PointerShapeCapability) != 0)
         {
@@ -540,6 +565,34 @@ public sealed class RdpBridgeClient : IDisposable
             (uint)clampedDesktopScale,
             (uint)deviceScale);
         DebugLogDetailed($"dynamic display resize {width}x{height} scale={clampedDesktopScale}% rc={rc}");
+        return rc == 0;
+    }
+
+    public bool TryResizeMonitors(IReadOnlyList<RdpMonitorRect> monitors)
+    {
+        if (_handle == IntPtr.Zero || !_supportsMultiMonitor || monitors == null || monitors.Count == 0)
+            return false;
+
+        var array = new NativeMonitorRect[Math.Min(monitors.Count, 16)];
+        for (var i = 0; i < array.Length; i++)
+        {
+            var m = monitors[i];
+            var clampedScale = Math.Clamp(m.DesktopScaleFactor, 100, 500);
+            var deviceScale = clampedScale >= 180 ? 180u : clampedScale >= 140 ? 140u : 100u;
+            array[i] = new NativeMonitorRect
+            {
+                Left = m.Left,
+                Top = m.Top,
+                Width = (uint)Math.Max(200, m.Width),
+                Height = (uint)Math.Max(200, m.Height),
+                DesktopScaleFactor = (uint)clampedScale,
+                DeviceScaleFactor = deviceScale,
+                IsPrimary = m.IsPrimary ? 1 : 0
+            };
+        }
+
+        var rc = NativeMethods.cxrdp_resize_monitors(_handle, array, array.Length);
+        DebugLogDetailed($"multi-monitor resize count={array.Length} rc={rc}");
         return rc == 0;
     }
 
@@ -1223,6 +1276,12 @@ public sealed class RdpBridgeClient : IDisposable
             int height,
             uint desktopScaleFactor,
             uint deviceScaleFactor);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int cxrdp_resize_monitors(
+            IntPtr handle,
+            [In] NativeMonitorRect[] monitors,
+            int count);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int cxrdp_set_security_mode(

@@ -286,6 +286,11 @@ public partial class RdpViewModel : ObservableObject, IDisposable
             _client.SyncLockKeys(flags);
     }
 
+    public bool TryResizeMonitors(IReadOnlyList<RdpMonitorRect> monitors)
+    {
+        return IsConnected && _client.TryResizeMonitors(monitors);
+    }
+
     public Task SendCtrlAltDeleteAsync()
     {
         return SendKeyCombinationAsync(RdpKeyboardShortcutSequences.CtrlAltDelete);
