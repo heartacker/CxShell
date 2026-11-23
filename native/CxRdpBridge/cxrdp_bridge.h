@@ -17,6 +17,16 @@ extern "C" {
 #endif
 
 typedef void (*cxrdp_frame_callback)(void* user_data, int width, int height, int stride, const uint8_t* bgra_pixels);
+typedef void (*cxrdp_frame_rect_callback)(
+    void* user_data,
+    int width,
+    int height,
+    int stride,
+    const uint8_t* bgra_pixels,
+    int dirty_x,
+    int dirty_y,
+    int dirty_w,
+    int dirty_h);
 typedef void (*cxrdp_status_callback)(void* user_data, const char* message);
 typedef void (*cxrdp_disconnect_callback)(void* user_data);
 typedef void (*cxrdp_clipboard_text_callback)(void* user_data, const char* text);
@@ -31,7 +41,7 @@ typedef void (*cxrdp_pointer_callback)(
     int hot_y,
     const uint8_t* bgra_pixels);
 
-#define CX_RDP_BRIDGE_API_VERSION 10u
+#define CX_RDP_BRIDGE_API_VERSION 11u
 #define CX_RDP_CAPABILITY_CLIPBOARD 0x00000001u
 #define CX_RDP_CAPABILITY_DRIVE_REDIRECTION 0x00000002u
 #define CX_RDP_CAPABILITY_AUDIO_PLAYBACK 0x00000004u
@@ -43,6 +53,7 @@ typedef void (*cxrdp_pointer_callback)(
 #define CX_RDP_CAPABILITY_CLIPBOARD_FILES 0x00000100u
 #define CX_RDP_CAPABILITY_DYNAMIC_DISPLAY 0x00000200u
 #define CX_RDP_CAPABILITY_POINTER_SHAPE 0x00000400u
+#define CX_RDP_CAPABILITY_DIRTY_RECT 0x00000800u
 
 #define CX_RDP_POINTER_DEFAULT 0
 #define CX_RDP_POINTER_NULL 1
@@ -83,6 +94,7 @@ CX_RDP_API void cxrdp_set_clipboard_callback(void* handle, cxrdp_clipboard_text_
 CX_RDP_API void cxrdp_set_clipboard_image_callback(void* handle, cxrdp_clipboard_image_callback clipboard_image_callback);
 CX_RDP_API void cxrdp_set_clipboard_files_callback(void* handle, cxrdp_clipboard_files_callback clipboard_files_callback);
 CX_RDP_API void cxrdp_set_pointer_callback(void* handle, cxrdp_pointer_callback pointer_callback);
+CX_RDP_API void cxrdp_set_frame_rect_callback(void* handle, cxrdp_frame_rect_callback frame_rect_callback);
 CX_RDP_API void cxrdp_set_clipboard_text(void* handle, const char* text);
 CX_RDP_API void cxrdp_set_clipboard_image(
     void* handle,

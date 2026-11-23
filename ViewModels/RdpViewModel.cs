@@ -46,7 +46,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         Password = password;
         ScreenScalePercent = ResolveScreenScalePercent(session);
         IsFitToWindow = ResolveInitialFitToWindow(session, ScreenScalePercent);
-        _client.RawFrameReceived += OnRawFrameReceived;
+        _client.RawFrameRectReceived += OnRawFrameRectReceived;
         _client.StatusChanged += message => Dispatcher.UIThread.Post(() => HandleStatus(message));
         _client.ClipboardTextReceived += OnClipboardTextReceived;
         _client.ClipboardImageReceived += OnClipboardImageReceived;
@@ -354,7 +354,13 @@ public partial class RdpViewModel : ObservableObject, IDisposable
     private byte[]? _frameStagingPixels;
     private int _frameStagingWidth;
     private int _frameStagingHeight;
+    private int _frameStagingStride;
     private int _frameStagingLength;
+    private bool _hasDirtyRect;
+    private int _dirtyX;
+    private int _dirtyY;
+    private int _dirtyRight;
+    private int _dirtyBottom;
     private int _frameUpdateScheduled;
 
     public void SetClipboardText(string text)
@@ -417,18 +423,84 @@ public partial class RdpViewModel : ObservableObject, IDisposable
             : 100;
     }
 
-    private void OnRawFrameReceived(int width, int height, int stride, IntPtr data)
+    private void OnRawFrameRectReceived(
+        int width,
+        int height,
+        int stride,
+        IntPtr data,
+        int dirtyX,
+        int dirtyY,
+        int dirtyW,
+        int dirtyH)
     {
         var length = checked(stride * height);
         lock (_frameStagingLock)
         {
-            if (_frameStagingPixels == null || _frameStagingPixels.Length < length)
-                _frameStagingPixels = new byte[length];
+            var sizeChanged = _frameStagingPixels == null ||
+                              _frameStagingPixels.Length < length ||
+                              _frameStagingWidth != width ||
+                              _frameStagingHeight != height ||
+                              _frameStagingStride != stride;
+            if (sizeChanged)
+            {
+                if (_frameStagingPixels == null || _frameStagingPixels.Length < length)
+                    _frameStagingPixels = new byte[length];
+                Marshal.Copy(data, _frameStagingPixels, 0, length);
+                _frameStagingWidth = width;
+                _frameStagingHeight = height;
+                _frameStagingStride = stride;
+                _frameStagingLength = length;
+                _hasDirtyRect = true;
+                _dirtyX = 0;
+                _dirtyY = 0;
+                _dirtyRight = width;
+                _dirtyBottom = height;
+            }
+            else
+            {
+                var x0 = Math.Clamp(dirtyX, 0, width);
+                var y0 = Math.Clamp(dirtyY, 0, height);
+                var x1 = Math.Clamp(dirtyX + dirtyW, x0, width);
+                var y1 = Math.Clamp(dirtyY + dirtyH, y0, height);
+                if (x1 <= x0 || y1 <= y0)
+                {
+                    x0 = 0;
+                    y0 = 0;
+                    x1 = width;
+                    y1 = height;
+                }
 
-            Marshal.Copy(data, _frameStagingPixels, 0, length);
-            _frameStagingWidth = width;
-            _frameStagingHeight = height;
-            _frameStagingLength = length;
+                if (x0 == 0 && y0 == 0 && x1 == width && y1 == height)
+                {
+                    Marshal.Copy(data, _frameStagingPixels!, 0, length);
+                }
+                else
+                {
+                    var rowBytes = (x1 - x0) * 4;
+                    var xByteOffset = x0 * 4;
+                    for (var y = y0; y < y1; y++)
+                    {
+                        var offset = y * stride + xByteOffset;
+                        Marshal.Copy(IntPtr.Add(data, offset), _frameStagingPixels!, offset, rowBytes);
+                    }
+                }
+
+                if (!_hasDirtyRect)
+                {
+                    _dirtyX = x0;
+                    _dirtyY = y0;
+                    _dirtyRight = x1;
+                    _dirtyBottom = y1;
+                    _hasDirtyRect = true;
+                }
+                else
+                {
+                    if (x0 < _dirtyX) _dirtyX = x0;
+                    if (y0 < _dirtyY) _dirtyY = y0;
+                    if (x1 > _dirtyRight) _dirtyRight = x1;
+                    if (y1 > _dirtyBottom) _dirtyBottom = y1;
+                }
+            }
         }
 
         if (Interlocked.Exchange(ref _frameUpdateScheduled, 1) == 0)
@@ -439,17 +511,15 @@ public partial class RdpViewModel : ObservableObject, IDisposable
     {
         Interlocked.Exchange(ref _frameUpdateScheduled, 0);
 
-        int width;
-        int height;
-        int length;
         lock (_frameStagingLock)
         {
             if (_frameStagingPixels == null || _frameStagingWidth <= 0 || _frameStagingHeight <= 0 || _frameStagingLength <= 0)
                 return;
 
-            width = _frameStagingWidth;
-            height = _frameStagingHeight;
-            length = _frameStagingLength;
+            var width = _frameStagingWidth;
+            var height = _frameStagingHeight;
+            var stride = _frameStagingStride;
+            var length = _frameStagingLength;
 
             var bitmap = Framebuffer;
             var recreated = bitmap == null ||
@@ -466,9 +536,24 @@ public partial class RdpViewModel : ObservableObject, IDisposable
 
             using (var locked = bitmap!.Lock())
             {
-                var copyBytes = Math.Min(length, locked.RowBytes * locked.Size.Height);
-                Marshal.Copy(_frameStagingPixels, 0, locked.Address, copyBytes);
+                if (recreated || !_hasDirtyRect || (_dirtyX == 0 && _dirtyY == 0 && _dirtyRight == width && _dirtyBottom == height) || locked.RowBytes != stride)
+                {
+                    var copyBytes = Math.Min(length, locked.RowBytes * locked.Size.Height);
+                    Marshal.Copy(_frameStagingPixels, 0, locked.Address, copyBytes);
+                }
+                else
+                {
+                    var rowBytes = (_dirtyRight - _dirtyX) * 4;
+                    var xByteOffset = _dirtyX * 4;
+                    for (var y = _dirtyY; y < _dirtyBottom; y++)
+                    {
+                        var offset = y * stride + xByteOffset;
+                        Marshal.Copy(_frameStagingPixels, offset, IntPtr.Add(locked.Address, offset), rowBytes);
+                    }
+                }
             }
+
+            _hasDirtyRect = false;
 
             if (recreated)
             {
@@ -507,7 +592,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
     {
         _resizeReconnectCts?.Cancel();
         _resizeReconnectCts?.Dispose();
-        _client.RawFrameReceived -= OnRawFrameReceived;
+        _client.RawFrameRectReceived -= OnRawFrameRectReceived;
         _client.ClipboardTextReceived -= OnClipboardTextReceived;
         _client.ClipboardImageReceived -= OnClipboardImageReceived;
         _client.ClipboardFilesReceived -= OnClipboardFilesReceived;

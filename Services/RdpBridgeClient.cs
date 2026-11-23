@@ -41,6 +41,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint ClipboardFilesCapability = 0x00000100;
     private const uint DynamicDisplayCapability = 0x00000200;
     private const uint PointerShapeCapability = 0x00000400;
+    private const uint DirtyRectCapability = 0x00000800;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
@@ -49,11 +50,13 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint ClipboardFilesApiVersion = 8;
     private const uint DynamicDisplayApiVersion = 9;
     private const uint PointerShapeApiVersion = 10;
+    private const uint DirtyRectApiVersion = 11;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
     private static string? _lastNativeLoadFailure;
     private readonly FrameCallback _frameCallback;
+    private readonly FrameRectCallback _frameRectCallback;
     private readonly StatusCallback _statusCallback;
     private readonly DisconnectCallback _disconnectCallback;
     private readonly ClipboardTextCallback _clipboardTextCallback;
@@ -76,6 +79,7 @@ public sealed class RdpBridgeClient : IDisposable
 
     public event EventHandler<RdpFramebufferEventArgs>? FramebufferUpdated;
     public event Action<int, int, int, IntPtr>? RawFrameReceived;
+    public event Action<int, int, int, IntPtr, int, int, int, int>? RawFrameRectReceived;
     public event Action<string>? StatusChanged;
     public event Action? Disconnected;
     public event Action<string>? ClipboardTextReceived;
@@ -98,6 +102,7 @@ public sealed class RdpBridgeClient : IDisposable
     public RdpBridgeClient()
     {
         _frameCallback = OnFrame;
+        _frameRectCallback = OnFrameRect;
         _statusCallback = OnStatus;
         _disconnectCallback = OnDisconnected;
         _clipboardTextCallback = OnClipboardText;
@@ -180,6 +185,11 @@ public sealed class RdpBridgeClient : IDisposable
             (nativeCapabilities & PointerShapeCapability) != 0)
         {
             NativeMethods.cxrdp_set_pointer_callback(_handle, _pointerCallback);
+        }
+        if (nativeApiVersion >= DirtyRectApiVersion &&
+            (nativeCapabilities & DirtyRectCapability) != 0)
+        {
+            NativeMethods.cxrdp_set_frame_rect_callback(_handle, _frameRectCallback);
         }
         DebugLog($"native bridge apiVersion={nativeApiVersion} capabilities=0x{nativeCapabilities:X8}");
         if (session.RdpRedirectDrives)
@@ -720,9 +730,24 @@ public sealed class RdpBridgeClient : IDisposable
 
     private void OnFrame(IntPtr userData, int width, int height, int stride, IntPtr data)
     {
+        OnFrameRect(userData, width, height, stride, data, 0, 0, width, height);
+    }
+
+    private void OnFrameRect(
+        IntPtr userData,
+        int width,
+        int height,
+        int stride,
+        IntPtr data,
+        int dirtyX,
+        int dirtyY,
+        int dirtyW,
+        int dirtyH)
+    {
         if (width <= 0 || height <= 0 || stride <= 0 || data == IntPtr.Zero)
             return;
 
+        RawFrameRectReceived?.Invoke(width, height, stride, data, dirtyX, dirtyY, dirtyW, dirtyH);
         RawFrameReceived?.Invoke(width, height, stride, data);
 
         if (FramebufferUpdated != null)
@@ -956,6 +981,18 @@ public sealed class RdpBridgeClient : IDisposable
     private delegate void FrameCallback(IntPtr userData, int width, int height, int stride, IntPtr bgraPixels);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void FrameRectCallback(
+        IntPtr userData,
+        int width,
+        int height,
+        int stride,
+        IntPtr bgraPixels,
+        int dirtyX,
+        int dirtyY,
+        int dirtyW,
+        int dirtyH);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void StatusCallback(IntPtr userData, IntPtr message);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -1021,6 +1058,11 @@ public sealed class RdpBridgeClient : IDisposable
         public static extern void cxrdp_set_pointer_callback(
             IntPtr handle,
             PointerCallback pointerCallback);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_set_frame_rect_callback(
+            IntPtr handle,
+            FrameRectCallback frameRectCallback);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int cxrdp_connect(

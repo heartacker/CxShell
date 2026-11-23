@@ -126,6 +126,7 @@ struct CxRdpSession
     uint64_t local_clipboard_revision = 0;
     uint64_t offered_clipboard_revision = 0;
     cxrdp_frame_callback frame_callback = nullptr;
+    cxrdp_frame_rect_callback frame_rect_callback = nullptr;
     cxrdp_status_callback status_callback = nullptr;
     cxrdp_disconnect_callback disconnect_callback = nullptr;
     cxrdp_clipboard_text_callback clipboard_text_callback = nullptr;
@@ -2225,8 +2226,33 @@ BOOL cx_end_paint(rdpContext* context)
     if (!source)
         return TRUE;
 
+    int dx = 0;
+    int dy = 0;
+    int dw = width;
+    int dh = height;
+    if (gdi->primary && gdi->primary->hdc && gdi->primary->hdc->hwnd && gdi->primary->hdc->hwnd->invalid)
+    {
+        const auto* inv = gdi->primary->hdc->hwnd->invalid;
+        if (!inv->null && inv->w > 0 && inv->h > 0)
+        {
+            const int x0 = inv->x < 0 ? 0 : (inv->x > width ? width : inv->x);
+            const int y0 = inv->y < 0 ? 0 : (inv->y > height ? height : inv->y);
+            const int x1 = (inv->x + inv->w) > width ? width : (inv->x + inv->w);
+            const int y1 = (inv->y + inv->h) > height ? height : (inv->y + inv->h);
+            if (x1 > x0 && y1 > y0)
+            {
+                dx = x0;
+                dy = y0;
+                dw = x1 - x0;
+                dh = y1 - y0;
+            }
+        }
+    }
+
     std::lock_guard<std::mutex> lock(session->callback_mutex);
-    if (session->frame_callback)
+    if (session->frame_rect_callback)
+        session->frame_rect_callback(session->user_data, width, height, stride, source, dx, dy, dw, dh);
+    else if (session->frame_callback)
         session->frame_callback(session->user_data, width, height, stride, source);
 
     return TRUE;
@@ -2831,7 +2857,8 @@ CX_RDP_API uint32_t cxrdp_get_capabilities(void)
            CX_RDP_CAPABILITY_CLIPBOARD_IMAGE |
            CX_RDP_CAPABILITY_CLIPBOARD_FILES |
            CX_RDP_CAPABILITY_DYNAMIC_DISPLAY |
-           CX_RDP_CAPABILITY_POINTER_SHAPE;
+           CX_RDP_CAPABILITY_POINTER_SHAPE |
+           CX_RDP_CAPABILITY_DIRTY_RECT;
 }
 
 CX_RDP_API void* cxrdp_create(void)
@@ -2915,6 +2942,18 @@ CX_RDP_API void cxrdp_set_pointer_callback(
 
     std::lock_guard<std::mutex> lock(session->callback_mutex);
     session->pointer_callback = pointer_callback;
+}
+
+CX_RDP_API void cxrdp_set_frame_rect_callback(
+    void* handle,
+    cxrdp_frame_rect_callback frame_rect_callback)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session)
+        return;
+
+    std::lock_guard<std::mutex> lock(session->callback_mutex);
+    session->frame_rect_callback = frame_rect_callback;
 }
 
 CX_RDP_API int cxrdp_connect(
