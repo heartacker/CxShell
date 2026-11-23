@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -17,6 +18,7 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
 {
     private static readonly List<DetachedTabWindow> OpenWindows = [];
     private TerminalTabViewModel? _tab;
+    private RdpViewModel? _subscribedRdpVm;
     private Action<TerminalTabViewModel>? _closeTab;
     private WindowState _windowStateBeforeFullScreen = WindowState.Normal;
     private bool _disposed;
@@ -36,6 +38,8 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
             ToggleFullScreen();
             FocusActiveContent();
         };
+        FloatingBar.MultiMonitorRequested += anchor =>
+            RdpContentView?.ToggleMultiMonitorPopup(anchor, PlacementMode.Bottom, FloatingBar.SetExternalPopupOpen);
         FloatingBar.CloseWindowRequested += Close;
         FloatingBar.InteractionCompleted += FocusActiveContent;
         FloatingBar.DragRestoreRequested += e =>
@@ -65,10 +69,27 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
         get => _tab;
         set
         {
+            if (_subscribedRdpVm != null)
+            {
+                _subscribedRdpVm.PropertyChanged -= OnRdpViewModelPropertyChanged;
+                _subscribedRdpVm = null;
+            }
+
             _tab = value;
             DataContext = value;
+            if (value?.Rdp is { } rdp)
+            {
+                _subscribedRdpVm = rdp;
+                rdp.PropertyChanged += OnRdpViewModelPropertyChanged;
+            }
+
             if (FloatingBar != null)
+            {
                 FloatingBar.SingleTitle = value?.Title ?? string.Empty;
+                FloatingBar.ShowMultiMonitorButton = value?.IsRdpSession == true;
+            }
+
+            SyncRdpMultiMonitorState();
         }
     }
 
@@ -113,6 +134,11 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
             return;
 
         _disposed = true;
+        if (_subscribedRdpVm != null)
+        {
+            _subscribedRdpVm.PropertyChanged -= OnRdpViewModelPropertyChanged;
+            _subscribedRdpVm = null;
+        }
         var tab = _tab;
         _tab = null;
         DataContext = null;
@@ -199,5 +225,30 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
         WindowState = _windowStateBeforeFullScreen == WindowState.FullScreen
             ? WindowState.Normal
             : _windowStateBeforeFullScreen;
+    }
+
+    private void OnRdpViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(RdpViewModel.IsConnected) or nameof(RdpViewModel.IsMultiMonitorActive))
+            SyncRdpMultiMonitorState();
+    }
+
+    private void SyncRdpMultiMonitorState()
+    {
+        var connected = _subscribedRdpVm?.IsConnected == true;
+        var active = _subscribedRdpVm?.IsMultiMonitorActive == true;
+        if (FloatingBar != null)
+        {
+            FloatingBar.IsMultiMonitorEnabled = connected;
+            FloatingBar.IsMultiMonitorActive = active;
+        }
+        if (TitleBarMultiMonitorButton != null)
+            TitleBarMultiMonitorButton.IsEnabled = connected;
+    }
+
+    private void OnTitleBarMultiMonitorClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control anchor)
+            RdpContentView?.ToggleMultiMonitorPopup(anchor, PlacementMode.Bottom);
     }
 }

@@ -81,6 +81,31 @@
         </ScrollViewer>
     </atom:Window.LeftAddOn>
 
+    <atom:Window.RightAddOn>
+        <Button x:Name="TitleBarMultiMonitorButton"
+                IsEnabled="False"
+                Height="24"
+                Padding="8,0"
+                Margin="0,0,4,0"
+                Background="Transparent"
+                BorderThickness="0"
+                CornerRadius="4"
+                ToolTip.Tip="多显示器设置"
+                VerticalAlignment="Center"
+                Click="OnTitleBarMultiMonitorClick">
+            <StackPanel Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center">
+                <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=DesktopOutlined}"
+                                    Width="13"
+                                    Height="13"/>
+                <TextBlock Text="多显示器"
+                           FontSize="12"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </Button>
+    </atom:Window.RightAddOn>
+
     <Grid Background="#111111">
         <!-- RDP sessions host (keeps all tabs alive while switching) -->
         <ItemsControl x:Name="RdpViewsItems">
@@ -100,6 +125,7 @@
         <!-- Shared immersive floating bar with multi-tab switcher enabled -->
         <controls:ImmersiveFloatingBar x:Name="FloatingBar"
                                        ShowTabSwitcher="True"
+                                       ShowMultiMonitorButton="True"
                                        ZIndex="100"/>
     </Grid>
 </atom:Window>

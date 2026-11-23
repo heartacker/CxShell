@@ -766,6 +766,11 @@
                             Spacing="8"
                             VerticalAlignment="Center"
                             IsVisible="{Binding IsSelectedRdpToolbarVisible}">
+                    <atom:Button Content="多显示器"
+                                 Icon="{antdicons:AntDesignIconProvider Kind=DesktopOutlined}"
+                                 Padding="10,5"
+                                 IsEnabled="{Binding SelectedTab.Rdp.IsConnected}"
+                                 Click="OnRdpMultiMonitorClick"/>
                     <atom:Button Content="{Binding [Rdp.Keyboard.Combinations], Source={x:Static services:LocalizationService.Shared}}"
                                  Padding="12,5"
                                  IsEnabled="{Binding SelectedTab.Rdp.IsConnected}"
@@ -1109,6 +1114,26 @@
                                                 Spacing="4"
                                                 VerticalAlignment="Center"
                                                 Margin="8,0,0,0">
+                                        <Button IsVisible="{Binding IsSelectedRdpSession}"
+                                                IsEnabled="{Binding SelectedTab.Rdp.IsConnected}"
+                                                Height="24"
+                                                Padding="7,0"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                CornerRadius="4"
+                                                ToolTip.Tip="多显示器设置"
+                                                Click="OnFullScreenRdpMultiMonitorClick">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Spacing="4"
+                                                        VerticalAlignment="Center">
+                                                <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=DesktopOutlined}"
+                                                                    Width="13"
+                                                                    Height="13"/>
+                                                <TextBlock Text="多显示器"
+                                                           FontSize="11"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
                                         <Button Width="28"
                                                 Height="24"
                                                 Padding="0"

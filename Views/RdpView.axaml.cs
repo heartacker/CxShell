@@ -33,6 +33,8 @@ public partial class RdpView : UserControl
     private Cursor? _customRemoteCursor;
     private Avalonia.Media.Imaging.WriteableBitmap? _customRemoteCursorBitmap;
     private TopLevel? _subscribedTopLevel;
+    private static readonly IBrush PopupButtonNormalBrush = new SolidColorBrush(Color.Parse("#22FFFFFF"));
+    private static readonly IBrush PopupButtonActiveBrush = new SolidColorBrush(Color.Parse("#4464D8FF"));
     private readonly System.Collections.Generic.HashSet<int> _selectedMonitorIndices = new();
     private readonly System.Collections.Generic.Dictionary<int, RdpMonitorWindow> _secondaryMonitorWindows = new();
     private readonly System.Collections.Generic.List<int> _virtualMonitorIds = new();
@@ -43,10 +45,24 @@ public partial class RdpView : UserControl
     private ushort _lastRemotePointerX;
     private ushort _lastRemotePointerY;
     private double _pendingWheelY;
+    private Action<bool>? _onMultiMonitorPopupOpenChanged;
+    private Control? _lastMultiMonitorAnchor;
+    private DateTime _multiMonitorPopupClosedAtUtc = DateTime.MinValue;
+
+    public bool IsMultiMonitorActive => IsCustomMonitorLayoutActive;
+    private bool IsCustomMonitorLayoutActive =>
+        _selectedMonitorIndices.Count > 1 || _virtualMonitorIds.Count > 0 || _ultrawideMode != 0;
 
     public RdpView()
     {
         InitializeComponent();
+        MultiMonitorPopup.Closed += (_, _) =>
+        {
+            _multiMonitorPopupClosedAtUtc = DateTime.UtcNow;
+            var callback = _onMultiMonitorPopupOpenChanged;
+            _onMultiMonitorPopupOpenChanged = null;
+            callback?.Invoke(false);
+        };
         AddHandler(KeyDownEvent, OnFramebufferKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyUpEvent, OnFramebufferKeyUp, RoutingStrategies.Tunnel);
         AddHandler(DragDrop.DragOverEvent, OnRdpDragOver);
@@ -65,7 +81,14 @@ public partial class RdpView : UserControl
         {
             _isAttached = false;
             _hasKeyboardFocus = false;
+            CloseMultiMonitorPopup();
             CloseAllSecondaryMonitorWindows();
+            _ultrawideMode = 0;
+            _virtualMonitorIds.Clear();
+            _selectedMonitorIndices.Clear();
+            _preferredPrimaryMonitorIndex = null;
+            _primarySliceRect = null;
+            SyncMultiMonitorActiveFlag();
             StopClipboardListener();
             UnsubscribeTopLevelScaling();
             DisposeSystemShortcutHook();
@@ -126,14 +149,20 @@ public partial class RdpView : UserControl
             if (_boundVm.IsConnected)
             {
                 SyncLocalLockKeysToRemote();
+                SyncMultiMonitorActiveFlag();
             }
             else
             {
+                CloseMultiMonitorPopup();
                 CloseAllSecondaryMonitorWindows();
+                _ultrawideMode = 0;
                 _virtualMonitorIds.Clear();
+                _selectedMonitorIndices.Clear();
+                _preferredPrimaryMonitorIndex = null;
                 _primarySliceRect = null;
                 PrimarySliceSurface.IsVisible = false;
                 FramebufferImage.IsVisible = true;
+                SyncMultiMonitorActiveFlag();
             }
         }
         if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.IsClipboardChannelReady) && _boundVm.IsClipboardChannelReady)
@@ -170,23 +199,52 @@ public partial class RdpView : UserControl
         }
     }
 
-    private void OnPrimaryTopHotZoneEntered(object? sender, PointerEventArgs e)
+    public void ToggleMultiMonitorPopup(
+        Control anchor,
+        PlacementMode placement = PlacementMode.Bottom,
+        Action<bool>? onPopupOpenChanged = null)
     {
-        if (DataContext is RdpViewModel { IsConnected: true })
-            PrimaryFloatingBar.IsVisible = true;
-    }
+        if (DataContext is not RdpViewModel { IsConnected: true })
+            return;
 
-    private void OnPrimaryFloatingBarExited(object? sender, PointerEventArgs e)
-    {
-        if (!MultiMonitorPopup.IsOpen)
-            PrimaryFloatingBar.IsVisible = false;
-    }
+        if (MultiMonitorPopup.IsOpen)
+        {
+            var sameAnchor = ReferenceEquals(MultiMonitorPopup.PlacementTarget, anchor);
+            var previousCallback = _onMultiMonitorPopupOpenChanged;
+            _onMultiMonitorPopupOpenChanged = null;
+            MultiMonitorPopup.IsOpen = false;
+            previousCallback?.Invoke(false);
+            if (sameAnchor)
+                return;
+        }
 
-    private void OnMultiMonitorButtonClick(object? sender, RoutedEventArgs e)
-    {
+        if (ReferenceEquals(_lastMultiMonitorAnchor, anchor) &&
+            (DateTime.UtcNow - _multiMonitorPopupClosedAtUtc).TotalMilliseconds < 250)
+        {
+            _lastMultiMonitorAnchor = null;
+            return;
+        }
+
+        _lastMultiMonitorAnchor = anchor;
+        _onMultiMonitorPopupOpenChanged = onPopupOpenChanged;
+        MultiMonitorPopup.PlacementTarget = anchor;
+        MultiMonitorPopup.Placement = placement;
         PopulateMonitorCheckboxes();
         UpdateUltrawideModeButtonStates();
-        MultiMonitorPopup.IsOpen = !MultiMonitorPopup.IsOpen;
+        MultiMonitorPopup.IsOpen = true;
+        _onMultiMonitorPopupOpenChanged?.Invoke(true);
+    }
+
+    public void CloseMultiMonitorPopup()
+    {
+        if (MultiMonitorPopup.IsOpen)
+            MultiMonitorPopup.IsOpen = false;
+    }
+
+    private void SyncMultiMonitorActiveFlag()
+    {
+        if (DataContext is RdpViewModel vm)
+            vm.IsMultiMonitorActive = vm.IsConnected && IsCustomMonitorLayoutActive;
     }
 
     private void OnUltrawideModeStandardClick(object? sender, RoutedEventArgs e)
@@ -231,8 +289,11 @@ public partial class RdpView : UserControl
     private void UpdateUltrawideModeButtonStates()
     {
         ModeStandardButton.FontWeight = _ultrawideMode == 0 ? FontWeight.Bold : FontWeight.Normal;
+        ModeStandardButton.Background = _ultrawideMode == 0 ? PopupButtonActiveBrush : PopupButtonNormalBrush;
         ModeSplitDualButton.FontWeight = _ultrawideMode == 1 ? FontWeight.Bold : FontWeight.Normal;
+        ModeSplitDualButton.Background = _ultrawideMode == 1 ? PopupButtonActiveBrush : PopupButtonNormalBrush;
         ModeMergeUltrawideButton.FontWeight = _ultrawideMode == 2 ? FontWeight.Bold : FontWeight.Normal;
+        ModeMergeUltrawideButton.Background = _ultrawideMode == 2 ? PopupButtonActiveBrush : PopupButtonNormalBrush;
 
         var canSplitDual = false;
         var splitReason = "需在宽屏全屏/最大化状态下开启";
@@ -341,6 +402,11 @@ public partial class RdpView : UserControl
             var primaryBtn = new Button
             {
                 Content = isPrimary ? "★ 主屏" : "设为主屏",
+                Foreground = Brushes.White,
+                Background = isPrimary ? PopupButtonActiveBrush : PopupButtonNormalBrush,
+                BorderBrush = new SolidColorBrush(Color.Parse("#40FFFFFF")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
                 FontSize = 11,
                 Padding = new Thickness(6, 2),
                 IsEnabled = !isPrimary,
@@ -436,6 +502,7 @@ public partial class RdpView : UserControl
                 new(halfW, 0, halfW, h, scale, false)
             };
             vm.TryResizeMonitors(splitLayouts);
+            SyncMultiMonitorActiveFlag();
             return;
         }
 
@@ -496,6 +563,7 @@ public partial class RdpView : UserControl
             _primarySliceRect = null;
             PrimarySliceSurface.IsVisible = false;
             FramebufferImage.IsVisible = true;
+            SyncMultiMonitorActiveFlag();
             return;
         }
 
@@ -560,8 +628,10 @@ public partial class RdpView : UserControl
         foreach (var key in toClose)
         {
             if (_secondaryMonitorWindows.Remove(key, out var win))
-                win.Close();
+                win.CloseProgrammatically();
         }
+
+        SyncMultiMonitorActiveFlag();
     }
 
     private void OnSecondaryMonitorCloseRequested(int monitorIndex)
@@ -569,15 +639,16 @@ public partial class RdpView : UserControl
         _selectedMonitorIndices.Remove(monitorIndex);
         _virtualMonitorIds.Remove(monitorIndex);
         if (_secondaryMonitorWindows.Remove(monitorIndex, out var win))
-            win.Close();
+            win.CloseProgrammatically();
         ApplySelectedMonitorLayout();
         UpdateUltrawideModeButtonStates();
+        SyncMultiMonitorActiveFlag();
     }
 
     private void CloseAllSecondaryMonitorWindows()
     {
         foreach (var win in _secondaryMonitorWindows.Values)
-            win.Close();
+            win.CloseProgrammatically();
         _secondaryMonitorWindows.Clear();
     }
 
@@ -754,7 +825,7 @@ public partial class RdpView : UserControl
             ConfigureInitialDisplay(vm, e.NewSize);
             if (_isAttached)
                 vm.Start();
-            if (_selectedMonitorIndices.Count > 1)
+            if (IsCustomMonitorLayoutActive)
                 ApplySelectedMonitorLayout();
             else
                 vm.RequestViewportResize(e.NewSize, GetRenderScaling());
@@ -850,7 +921,7 @@ public partial class RdpView : UserControl
     {
         if (DataContext is RdpViewModel vm)
         {
-            if (_selectedMonitorIndices.Count > 1)
+            if (IsCustomMonitorLayoutActive)
                 ApplySelectedMonitorLayout();
             else
                 vm.RequestViewportResize(RdpViewport.Bounds.Size, GetRenderScaling());

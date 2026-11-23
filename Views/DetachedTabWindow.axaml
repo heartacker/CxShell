@@ -1,6 +1,7 @@
 <atom:Window xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:atom="https://atomui.net"
+             xmlns:antdicons="https://atomui.net/icons/antdesign"
              xmlns:controls="using:CxShell.Controls"
              xmlns:vm="using:CxShell.ViewModels"
              xmlns:views="using:CxShell.Views"
@@ -15,6 +16,31 @@
              WindowStartupLocation="CenterScreen"
              IsFullScreenCaptionButtonVisible="True"
              Background="{atom:SharedTokenResource ColorBgLayout}">
+    <atom:Window.RightAddOn>
+        <Button x:Name="TitleBarMultiMonitorButton"
+                IsVisible="{Binding IsRdpSession}"
+                IsEnabled="{Binding Rdp.IsConnected, x:CompileBindings=False}"
+                Height="24"
+                Padding="8,0"
+                Margin="0,0,4,0"
+                Background="Transparent"
+                BorderThickness="0"
+                CornerRadius="4"
+                ToolTip.Tip="多显示器设置"
+                VerticalAlignment="Center"
+                Click="OnTitleBarMultiMonitorClick">
+            <StackPanel Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center">
+                <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=DesktopOutlined}"
+                                    Width="13"
+                                    Height="13"/>
+                <TextBlock Text="多显示器"
+                           FontSize="12"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </Button>
+    </atom:Window.RightAddOn>
     <Grid Background="{atom:SharedTokenResource ColorBgContainer}">
         <views:TerminalView x:Name="TerminalContentView"
                             DataContext="{Binding Terminal, x:CompileBindings=False}"

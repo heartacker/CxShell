@@ -26,6 +26,7 @@ public partial class MainWindow : AtomWindow
     private readonly CommandLineLaunchOptions _startupLaunchOptions;
     private IDisposable? _commandLineHandoffServer;
     private bool _isPointerOverFullScreenHintArea;
+    private bool _isFullScreenMultiMonitorPopupOpen;
     private bool _tabReorderHandlersAttached;
     private SessionInfo? _quickSessionContext;
     private readonly HashSet<Guid> _quickSessionActivationsPending = [];
@@ -100,10 +101,14 @@ public partial class MainWindow : AtomWindow
                     ? Avalonia.Controls.WindowState.FullScreen
                     : Avalonia.Controls.WindowState.Normal;
                 _isPointerOverFullScreenHintArea = false;
+                _isFullScreenMultiMonitorPopupOpen = false;
                 if (vm.IsTerminalFullScreen)
                     RestartFullScreenHintTimer();
                 else
+                {
                     _fullScreenHintTimer.Stop();
+                    GetSelectedRdpView()?.CloseMultiMonitorPopup();
+                }
             }
 
             if (e.PropertyName == nameof(MainWindowViewModel.SftpPanelWidth) ||
@@ -763,6 +768,48 @@ public partial class MainWindow : AtomWindow
             return;
 
         await vnc.SendCtrlAltDeleteAsync();
+    }
+
+    private RdpView? GetSelectedRdpView()
+    {
+        if (DataContext is not MainWindowViewModel { SelectedTab.Rdp: { } rdp })
+            return null;
+
+        return MainContentGrid.GetVisualDescendants()
+            .OfType<RdpView>()
+            .FirstOrDefault(v => v.IsEffectivelyVisible && ReferenceEquals(v.DataContext, rdp));
+    }
+
+    private void OnRdpMultiMonitorClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Avalonia.Controls.Control anchor)
+            GetSelectedRdpView()?.ToggleMultiMonitorPopup(anchor, Avalonia.Controls.PlacementMode.Top);
+    }
+
+    private void OnFullScreenRdpMultiMonitorClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Avalonia.Controls.Control anchor)
+        {
+            GetSelectedRdpView()?.ToggleMultiMonitorPopup(
+                anchor,
+                Avalonia.Controls.PlacementMode.Bottom,
+                OnFullScreenMultiMonitorPopupOpenChanged);
+        }
+    }
+
+    private void OnFullScreenMultiMonitorPopupOpenChanged(bool isOpen)
+    {
+        _isFullScreenMultiMonitorPopupOpen = isOpen;
+        if (isOpen)
+        {
+            _fullScreenHintTimer.Stop();
+            if (DataContext is MainWindowViewModel { IsTerminalFullScreen: true } vm)
+                vm.IsFullScreenHintVisible = true;
+            return;
+        }
+
+        if (!_isPointerOverFullScreenHintArea)
+            RestartFullScreenHintTimer();
     }
 
     private async void OnSendRdpCtrlAltDelClick(object? sender, RoutedEventArgs e)
@@ -1460,6 +1507,9 @@ public partial class MainWindow : AtomWindow
     private void FullScreenHintArea_OnPointerExited(object? sender, PointerEventArgs e)
     {
         _isPointerOverFullScreenHintArea = false;
+        if (_isFullScreenMultiMonitorPopupOpen)
+            return;
+
         RestartFullScreenHintTimer();
     }
 
@@ -1503,7 +1553,7 @@ public partial class MainWindow : AtomWindow
     {
         _fullScreenHintTimer.Stop();
 
-        if (_isPointerOverFullScreenHintArea)
+        if (_isPointerOverFullScreenHintArea || _isFullScreenMultiMonitorPopupOpen)
             return;
 
         if (DataContext is MainWindowViewModel { IsTerminalFullScreen: true } vm)

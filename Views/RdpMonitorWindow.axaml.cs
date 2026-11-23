@@ -8,7 +8,7 @@ using CxShell.ViewModels;
 
 namespace CxShell.Views;
 
-public partial class RdpMonitorWindow : Window
+public partial class RdpMonitorWindow : AtomUI.Desktop.Controls.Window
 {
     private readonly RdpView _ownerView;
     private readonly RdpViewModel _vm;
@@ -18,10 +18,21 @@ public partial class RdpMonitorWindow : Window
     private Rect _virtualSliceRect;
     private bool _keepTaskbar;
     private bool _isWindowed;
+    private bool _updatingGeometry;
+    private bool _isClosingProgrammatically;
     private ushort _buttonFlags;
     private double _pendingWheelY;
     private ushort _lastRemoteX;
     private ushort _lastRemoteY;
+
+    public RdpMonitorWindow()
+    {
+        InitializeComponent();
+        _ownerView = null!;
+        _vm = null!;
+        _screen = null!;
+        _onCloseRequested = _ => { };
+    }
 
     public RdpMonitorWindow(
         RdpView ownerView,
@@ -48,10 +59,38 @@ public partial class RdpMonitorWindow : Window
         AddHandler(DragDrop.DropEvent, (_, e) => _ownerView.ForwardDrop(e));
         GotFocus += (_, _) => _ownerView.ForwardGotFocus();
         LostFocus += (_, _) => _ownerView.ForwardLostFocus();
+        PropertyChanged += OnWindowPropertyChanged;
 
         var scalePct = (int)Math.Round(screen.Scaling * 100);
-        MonitorTitleText.Text = customTitle ?? $"屏幕 {monitorIndex + 1} · {screen.Bounds.Width}×{screen.Bounds.Height} · {scalePct}%";
-        Title = MonitorTitleText.Text;
+        var titleText = customTitle ?? $"屏幕 {monitorIndex + 1} · {screen.Bounds.Width}×{screen.Bounds.Height} · {scalePct}%";
+        Title = titleText;
+
+        FloatingBar.SingleTitle = titleText;
+        FloatingBar.CloseToolTip = "关闭此屏";
+        FloatingBar.MinimizeRequested += () => WindowState = WindowState.Minimized;
+        FloatingBar.RestoreRequested += OnFloatingBarRestoreRequested;
+        FloatingBar.ToggleFullScreenRequested += OnFloatingBarToggleFullScreenRequested;
+        FloatingBar.TaskbarModeToggleRequested += OnToggleImmersiveModeClick;
+        FloatingBar.CloseWindowRequested += () => _onCloseRequested(_monitorIndex);
+        FloatingBar.InteractionCompleted += () => SliceSurface.Focus();
+        FloatingBar.DragRestoreRequested += e =>
+        {
+            if (!_isWindowed)
+            {
+                _isWindowed = true;
+                ApplyWindowGeometry();
+                BeginMoveDrag(e);
+                e.Handled = true;
+                return;
+            }
+
+            if (WindowState is WindowState.Maximized or WindowState.FullScreen)
+            {
+                WindowState = WindowState.Normal;
+                BeginMoveDrag(e);
+                e.Handled = true;
+            }
+        };
 
         ApplyWindowGeometry();
         UpdateSlice(_virtualSliceRect);
@@ -60,13 +99,32 @@ public partial class RdpMonitorWindow : Window
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         Closed += (_, _) =>
         {
+            FloatingBar?.StopTimer();
             _vm.FramebufferInvalidated -= OnFramebufferInvalidated;
             _vm.PropertyChanged -= OnViewModelPropertyChanged;
+            if (!_isClosingProgrammatically)
+            {
+                _isClosingProgrammatically = true;
+                _onCloseRequested(_monitorIndex);
+            }
         };
+    }
+
+    public void CloseProgrammatically()
+    {
+        _isClosingProgrammatically = true;
+        Close();
     }
 
     private void OnMonitorKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F11)
+        {
+            ToggleImmersiveFullScreen();
+            e.Handled = true;
+            return;
+        }
+
         _ownerView.ForwardKeyDown(e);
     }
 
@@ -90,37 +148,76 @@ public partial class RdpMonitorWindow : Window
         SliceSurface.Cursor = cursor;
     }
 
+    private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (_updatingGeometry || !_isWindowed || e.Property != WindowStateProperty)
+            return;
+
+        var state = WindowState;
+        var isImmersive = state is WindowState.Maximized or WindowState.FullScreen;
+        IsTitleBarVisible = !isImmersive;
+        WindowDecorations = state == WindowState.FullScreen
+            ? WindowDecorations.None
+            : WindowDecorations.Full;
+        FloatingBar.ShowMinimizeButton = true;
+        FloatingBar.RestoreToolTip = "还原窗口";
+        FloatingBar.FullScreenToolTip = "切换全屏 (F11)";
+        FloatingBar.TaskbarModeLabel = "保留任务栏";
+        FloatingBar.SetImmersiveActive(isImmersive);
+    }
+
     private void ApplyWindowGeometry()
     {
-        var scaling = _screen.Scaling > 0 ? _screen.Scaling : 1.0;
-        if (_isWindowed)
+        _updatingGeometry = true;
+        try
         {
-            WindowDecorations = Avalonia.Controls.WindowDecorations.Full;
-            CanResize = true;
-            ShowInTaskbar = true;
-            var area = _screen.WorkingArea;
-            var w = Math.Max(640, area.Width * 0.78);
-            var h = Math.Max(420, area.Height * 0.78);
-            Position = new PixelPoint(
-                area.X + (int)((area.Width - w) / 2),
-                area.Y + (int)((area.Height - h) / 2));
-            Width = w / scaling;
-            Height = h / scaling;
-            ToggleWindowedModeButton.Content = "沉浸全屏";
-            ToggleImmersiveModeButton.IsVisible = false;
-            return;
-        }
+            var targetScreen = _monitorIndex >= 100 && IsVisible
+                ? (Screens.ScreenFromWindow(this) ?? _screen)
+                : _screen;
+            var scaling = targetScreen.Scaling > 0 ? targetScreen.Scaling : 1.0;
 
-        WindowDecorations = Avalonia.Controls.WindowDecorations.None;
-        CanResize = false;
-        ShowInTaskbar = false;
-        var rect = _keepTaskbar ? _screen.WorkingArea : _screen.Bounds;
-        Position = new PixelPoint(rect.X, rect.Y);
-        Width = rect.Width / scaling;
-        Height = rect.Height / scaling;
-        ToggleWindowedModeButton.Content = "窗口化";
-        ToggleImmersiveModeButton.IsVisible = true;
-        ToggleImmersiveModeButton.Content = _keepTaskbar ? "真全屏" : "保留任务栏";
+            if (_isWindowed)
+            {
+                WindowState = WindowState.Normal;
+                IsTitleBarVisible = true;
+                WindowDecorations = WindowDecorations.Full;
+                CanResize = true;
+                ShowInTaskbar = true;
+                var area = targetScreen.WorkingArea;
+                var w = Math.Max(640, area.Width * 0.78);
+                var h = Math.Max(420, area.Height * 0.78);
+                Position = new PixelPoint(
+                    area.X + (int)((area.Width - w) / 2),
+                    area.Y + (int)((area.Height - h) / 2));
+                Width = w / scaling;
+                Height = h / scaling;
+                FloatingBar.ShowMinimizeButton = true;
+                FloatingBar.RestoreToolTip = "还原窗口";
+                FloatingBar.FullScreenToolTip = "切换全屏 (F11)";
+                FloatingBar.TaskbarModeLabel = "保留任务栏";
+                FloatingBar.SetImmersiveActive(false);
+                return;
+            }
+
+            WindowState = WindowState.Normal;
+            IsTitleBarVisible = false;
+            WindowDecorations = WindowDecorations.None;
+            CanResize = false;
+            ShowInTaskbar = false;
+            var rect = _keepTaskbar ? targetScreen.WorkingArea : targetScreen.Bounds;
+            Position = new PixelPoint(rect.X, rect.Y);
+            Width = rect.Width / scaling;
+            Height = rect.Height / scaling;
+            FloatingBar.ShowMinimizeButton = false;
+            FloatingBar.RestoreToolTip = "窗口化";
+            FloatingBar.FullScreenToolTip = "切换窗口化 / 沉浸全屏 (F11)";
+            FloatingBar.TaskbarModeLabel = _keepTaskbar ? "真全屏" : "保留任务栏";
+            FloatingBar.SetImmersiveActive(true);
+        }
+        finally
+        {
+            _updatingGeometry = false;
+        }
     }
 
     private void OnFramebufferInvalidated()
@@ -138,32 +235,98 @@ public partial class RdpMonitorWindow : Window
         }
     }
 
-    private void OnTopHotZoneEntered(object? sender, PointerEventArgs e)
+    private void OnFloatingBarRestoreRequested()
     {
-        FloatingToolbar.IsVisible = true;
+        if (!_isWindowed)
+        {
+            _isWindowed = true;
+            ApplyWindowGeometry();
+        }
+        else if (WindowState is WindowState.Maximized or WindowState.FullScreen)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        SliceSurface.Focus();
     }
 
-    private void OnFloatingToolbarExited(object? sender, PointerEventArgs e)
+    private void OnFloatingBarToggleFullScreenRequested()
     {
-        FloatingToolbar.IsVisible = false;
+        if (_isWindowed)
+        {
+            if (WindowState == WindowState.FullScreen)
+            {
+                WindowState = WindowState.Normal;
+            }
+            else
+            {
+                _isWindowed = false;
+                _keepTaskbar = false;
+                ApplyWindowGeometry();
+            }
+        }
+        else
+        {
+            _isWindowed = true;
+            ApplyWindowGeometry();
+        }
+
+        SliceSurface.Focus();
     }
 
-    private void OnToggleImmersiveModeClick(object? sender, RoutedEventArgs e)
+    private void ToggleImmersiveFullScreen()
+    {
+        if (_isWindowed)
+        {
+            if (WindowState == WindowState.FullScreen)
+            {
+                WindowState = WindowState.Normal;
+            }
+            else
+            {
+                _isWindowed = false;
+                _keepTaskbar = false;
+                ApplyWindowGeometry();
+            }
+        }
+        else
+        {
+            _isWindowed = true;
+            ApplyWindowGeometry();
+        }
+
+        SliceSurface.Focus();
+    }
+
+    private void OnToggleImmersiveModeClick()
+    {
+        if (_isWindowed)
+        {
+            _isWindowed = false;
+            _keepTaskbar = true;
+        }
+        else
+        {
+            _keepTaskbar = !_keepTaskbar;
+        }
+
+        ApplyWindowGeometry();
+    }
+
+    private void OnEnterKeepTaskbarClick(object? sender, RoutedEventArgs e)
     {
         _isWindowed = false;
-        _keepTaskbar = !_keepTaskbar;
+        _keepTaskbar = true;
         ApplyWindowGeometry();
+        SliceSurface.Focus();
     }
 
-    private void OnToggleWindowedModeClick(object? sender, RoutedEventArgs e)
+    private void OnEnterImmersiveClick(object? sender, RoutedEventArgs e)
     {
-        _isWindowed = !_isWindowed;
+        _isWindowed = false;
+        _keepTaskbar = false;
         ApplyWindowGeometry();
-    }
-
-    private void OnCloseMonitorClick(object? sender, RoutedEventArgs e)
-    {
-        _onCloseRequested(_monitorIndex);
+        SliceSurface.Focus();
     }
 
     public bool TryMapScreenPoint(PixelPoint screenPoint, out ushort remoteX, out ushort remoteY)

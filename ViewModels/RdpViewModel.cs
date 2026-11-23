@@ -25,6 +25,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
     [ObservableProperty] private WriteableBitmap? _framebuffer;
     [ObservableProperty] private string _statusText = "RDP disconnected";
     [ObservableProperty] private bool _isConnected;
+    [ObservableProperty] private bool _isMultiMonitorActive;
     [ObservableProperty] private int _remoteWidth;
     [ObservableProperty] private int _remoteHeight;
     [ObservableProperty] private bool _isFitToWindow = true;
@@ -57,6 +58,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         {
             _started = false;
             IsConnected = false;
+            IsMultiMonitorActive = false;
             IsClipboardChannelReady = false;
             StatusText = "RDP disconnected";
         });
@@ -75,7 +77,11 @@ public partial class RdpViewModel : ObservableObject, IDisposable
             try
             {
                 _client.Connect(Session, Password, _runtimeDesktopWidth, _runtimeDesktopHeight, _runtimeDesktopScaleFactor);
-                Dispatcher.UIThread.Post(() => IsConnected = false);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    IsConnected = false;
+                    IsMultiMonitorActive = false;
+                });
             }
             catch (DllNotFoundException ex)
             {
@@ -127,6 +133,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
             message.Contains("closed", StringComparison.OrdinalIgnoreCase))
         {
             IsConnected = false;
+            IsMultiMonitorActive = false;
             _started = false;
             IsClipboardChannelReady = false;
         }
@@ -157,6 +164,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         _client.Disconnect();
         _started = false;
         IsConnected = false;
+        IsMultiMonitorActive = false;
         IsClipboardChannelReady = false;
         StatusText = "RDP disconnected";
     }

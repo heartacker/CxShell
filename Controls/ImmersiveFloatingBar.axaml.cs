@@ -15,11 +15,18 @@ namespace CxShell.Controls;
 /// </summary>
 public partial class ImmersiveFloatingBar : UserControl
 {
+    private static readonly IBrush ActionNormalBrush = new SolidColorBrush(Color.Parse("#1FFFFFFF"));
+    private static readonly IBrush ActionActiveBrush = new SolidColorBrush(Color.Parse("#4464D8FF"));
     private readonly DispatcherTimer _hideTimer;
     private bool _isImmersiveActive;
     private bool _isPointerOver;
     private bool _isPinned;
+    private bool _isExternalPopupOpen;
     private bool _showTabSwitcher;
+    private bool _showMultiMonitorButton;
+    private bool _isMultiMonitorActive;
+    private bool _showTaskbarModeButton;
+    private bool _showMinimizeButton = true;
 
     public ImmersiveFloatingBar()
     {
@@ -64,8 +71,108 @@ public partial class ImmersiveFloatingBar : UserControl
         }
     }
 
+    public bool ShowMultiMonitorButton
+    {
+        get => _showMultiMonitorButton;
+        set
+        {
+            _showMultiMonitorButton = value;
+            if (MultiMonitorButton != null)
+                MultiMonitorButton.IsVisible = value;
+            UpdateExtraActionsDivider();
+        }
+    }
+
+    public bool IsMultiMonitorEnabled
+    {
+        get => MultiMonitorButton?.IsEnabled ?? false;
+        set
+        {
+            if (MultiMonitorButton != null)
+            {
+                MultiMonitorButton.IsEnabled = value;
+                MultiMonitorButton.Opacity = value ? 1.0 : 0.45;
+            }
+        }
+    }
+
+    public bool IsMultiMonitorActive
+    {
+        get => _isMultiMonitorActive;
+        set
+        {
+            _isMultiMonitorActive = value;
+            UpdateMultiMonitorVisual();
+        }
+    }
+
+    public bool ShowTaskbarModeButton
+    {
+        get => _showTaskbarModeButton;
+        set
+        {
+            _showTaskbarModeButton = value;
+            if (TaskbarModeButton != null)
+                TaskbarModeButton.IsVisible = value;
+            UpdateExtraActionsDivider();
+        }
+    }
+
+    public string TaskbarModeLabel
+    {
+        get => TaskbarModeText?.Text ?? string.Empty;
+        set
+        {
+            if (TaskbarModeText != null)
+                TaskbarModeText.Text = value;
+        }
+    }
+
+    public bool ShowMinimizeButton
+    {
+        get => _showMinimizeButton;
+        set
+        {
+            _showMinimizeButton = value;
+            if (MinimizeButton != null)
+                MinimizeButton.IsVisible = value;
+        }
+    }
+
+    public string RestoreToolTip
+    {
+        get => RestoreButton != null ? ToolTip.GetTip(RestoreButton)?.ToString() ?? string.Empty : string.Empty;
+        set
+        {
+            if (RestoreButton != null)
+                ToolTip.SetTip(RestoreButton, value);
+        }
+    }
+
+    public string FullScreenToolTip
+    {
+        get => FullScreenButton != null ? ToolTip.GetTip(FullScreenButton)?.ToString() ?? string.Empty : string.Empty;
+        set
+        {
+            if (FullScreenButton != null)
+                ToolTip.SetTip(FullScreenButton, value);
+        }
+    }
+
+    public string CloseToolTip
+    {
+        get => CloseButton != null ? ToolTip.GetTip(CloseButton)?.ToString() ?? string.Empty : string.Empty;
+        set
+        {
+            if (CloseButton != null)
+                ToolTip.SetTip(CloseButton, value);
+        }
+    }
+
     public event Action<object>? TabSelected;
     public event Action<object>? TabCloseRequested;
+    public event Action<Control>? MultiMonitorRequested;
+    public event Action? TaskbarModeToggleRequested;
     public event Action? MinimizeRequested;
     public event Action? RestoreRequested;
     public event Action? ToggleFullScreenRequested;
@@ -82,6 +189,8 @@ public partial class ImmersiveFloatingBar : UserControl
         {
             _hideTimer.Stop();
             _isPointerOver = false;
+            _isExternalPopupOpen = false;
+            UpdateMultiMonitorVisual();
             if (FloatingBarPanel != null)
                 FloatingBarPanel.IsVisible = false;
             return;
@@ -90,9 +199,30 @@ public partial class ImmersiveFloatingBar : UserControl
         if (FloatingBarPanel != null)
             FloatingBarPanel.IsVisible = true;
 
-        if (!_isPinned)
+        if (!_isPinned && !_isExternalPopupOpen)
         {
             _hideTimer.Interval = TimeSpan.FromMilliseconds(1500);
+            _hideTimer.Stop();
+            _hideTimer.Start();
+        }
+    }
+
+    public void SetExternalPopupOpen(bool isOpen)
+    {
+        _isExternalPopupOpen = isOpen;
+        UpdateMultiMonitorVisual();
+
+        if (isOpen)
+        {
+            _hideTimer.Stop();
+            if (_isImmersiveActive && FloatingBarPanel != null)
+                FloatingBarPanel.IsVisible = true;
+            return;
+        }
+
+        if (_isImmersiveActive && !_isPointerOver && !_isPinned)
+        {
+            _hideTimer.Interval = TimeSpan.FromMilliseconds(750);
             _hideTimer.Stop();
             _hideTimer.Start();
         }
@@ -101,6 +231,22 @@ public partial class ImmersiveFloatingBar : UserControl
     public void StopTimer()
     {
         _hideTimer.Stop();
+    }
+
+    private void UpdateExtraActionsDivider()
+    {
+        if (ExtraActionsDivider != null)
+            ExtraActionsDivider.IsVisible = _showMultiMonitorButton || _showTaskbarModeButton;
+    }
+
+    private void UpdateMultiMonitorVisual()
+    {
+        if (MultiMonitorButton != null)
+        {
+            MultiMonitorButton.Background = (_isMultiMonitorActive || _isExternalPopupOpen)
+                ? ActionActiveBrush
+                : ActionNormalBrush;
+        }
     }
 
     private void FloatingBar_OnPointerEntered(object? sender, PointerEventArgs e)
@@ -115,7 +261,7 @@ public partial class ImmersiveFloatingBar : UserControl
     private void FloatingBar_OnPointerExited(object? sender, PointerEventArgs e)
     {
         _isPointerOver = false;
-        if (_isPinned)
+        if (_isPinned || _isExternalPopupOpen)
             return;
 
         _hideTimer.Interval = TimeSpan.FromMilliseconds(750);
@@ -126,7 +272,7 @@ public partial class ImmersiveFloatingBar : UserControl
     private void HideIfNeeded()
     {
         _hideTimer.Stop();
-        if (_isPointerOver || _isPinned)
+        if (_isPointerOver || _isPinned || _isExternalPopupOpen)
             return;
 
         if (FloatingBarPanel != null)
@@ -200,6 +346,18 @@ public partial class ImmersiveFloatingBar : UserControl
             e.Handled = true;
             TabCloseRequested?.Invoke(item);
         }
+    }
+
+    private void MultiMonitorButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (MultiMonitorButton != null)
+            MultiMonitorRequested?.Invoke(MultiMonitorButton);
+    }
+
+    private void TaskbarModeButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        TaskbarModeToggleRequested?.Invoke();
+        InteractionCompleted?.Invoke();
     }
 
     private void MinimizeButton_OnClick(object? sender, RoutedEventArgs e) => MinimizeRequested?.Invoke();

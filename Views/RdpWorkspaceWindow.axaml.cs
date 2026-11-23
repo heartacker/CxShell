@@ -1,11 +1,13 @@
 using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CxShell.ViewModels;
 
@@ -45,6 +47,7 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
     private static RdpWorkspaceWindow? _instance;
     private readonly ObservableCollection<RdpWorkspaceTabItem> _tabs = [];
     private WindowState _windowStateBeforeFullScreen = WindowState.Normal;
+    private RdpViewModel? _selectedRdpVm;
 
     public RdpWorkspaceWindow()
     {
@@ -63,6 +66,8 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
             if (item is RdpWorkspaceTabItem tabItem)
                 CloseTabItem(tabItem);
         };
+        FloatingBar.MultiMonitorRequested += anchor =>
+            GetSelectedRdpView()?.ToggleMultiMonitorPopup(anchor, PlacementMode.Bottom, FloatingBar.SetExternalPopupOpen);
         FloatingBar.MinimizeRequested += () => WindowState = WindowState.Minimized;
         FloatingBar.RestoreRequested += () => WindowState = WindowState.Normal;
         FloatingBar.ToggleFullScreenRequested += ToggleFullScreen;
@@ -116,8 +121,57 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
 
     private void SelectTab(RdpWorkspaceTabItem item)
     {
+        GetSelectedRdpView()?.CloseMultiMonitorPopup();
+
         foreach (var existing in _tabs)
             existing.IsSelected = ReferenceEquals(existing, item);
+
+        if (_selectedRdpVm != null)
+        {
+            _selectedRdpVm.PropertyChanged -= OnSelectedRdpPropertyChanged;
+            _selectedRdpVm = null;
+        }
+
+        if (item.Tab.Rdp is { } rdp)
+        {
+            _selectedRdpVm = rdp;
+            rdp.PropertyChanged += OnSelectedRdpPropertyChanged;
+        }
+
+        UpdateMultiMonitorButtonState();
+    }
+
+    private RdpView? GetSelectedRdpView()
+    {
+        var selected = _tabs.FirstOrDefault(t => t.IsSelected);
+        if (selected?.Tab.Rdp is not { } rdp)
+            return null;
+
+        return RdpViewsItems.GetVisualDescendants()
+            .OfType<RdpView>()
+            .FirstOrDefault(v => ReferenceEquals(v.DataContext, rdp));
+    }
+
+    private void OnSelectedRdpPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(RdpViewModel.IsConnected) or nameof(RdpViewModel.IsMultiMonitorActive))
+            UpdateMultiMonitorButtonState();
+    }
+
+    private void UpdateMultiMonitorButtonState()
+    {
+        var connected = _selectedRdpVm?.IsConnected == true;
+        var active = _selectedRdpVm?.IsMultiMonitorActive == true;
+        FloatingBar.IsMultiMonitorEnabled = connected;
+        FloatingBar.IsMultiMonitorActive = active;
+        if (TitleBarMultiMonitorButton != null)
+            TitleBarMultiMonitorButton.IsEnabled = connected;
+    }
+
+    private void OnTitleBarMultiMonitorClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control anchor)
+            GetSelectedRdpView()?.ToggleMultiMonitorPopup(anchor, PlacementMode.Bottom);
     }
 
     private void DetachTabItem(RdpWorkspaceTabItem item)
@@ -218,6 +272,11 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
     private void OnClosed(object? sender, EventArgs e)
     {
         FloatingBar?.StopTimer();
+        if (_selectedRdpVm != null)
+        {
+            _selectedRdpVm.PropertyChanged -= OnSelectedRdpPropertyChanged;
+            _selectedRdpVm = null;
+        }
         if (ReferenceEquals(_instance, this))
             _instance = null;
 

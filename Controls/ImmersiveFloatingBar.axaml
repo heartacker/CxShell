@@ -121,7 +121,56 @@
                     </ItemsControl>
                 </ScrollViewer>
 
-                <Button Width="26"
+                <Button x:Name="MultiMonitorButton"
+                        IsVisible="False"
+                        Height="24"
+                        Padding="7,0"
+                        Background="#1FFFFFFF"
+                        Foreground="#E6FFFFFF"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="多显示器设置"
+                        Click="MultiMonitorButton_OnClick">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="4"
+                                VerticalAlignment="Center">
+                        <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=DesktopOutlined}"
+                                            Width="13"
+                                            Height="13"/>
+                        <TextBlock Text="多显示器"
+                                   FontSize="11"
+                                   Foreground="#E6FFFFFF"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="TaskbarModeButton"
+                        IsVisible="False"
+                        Height="24"
+                        Padding="7,0"
+                        Background="#1FFFFFFF"
+                        Foreground="#E6FFFFFF"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="切换真全屏 / 保留任务栏模式"
+                        Click="TaskbarModeButton_OnClick">
+                    <TextBlock x:Name="TaskbarModeText"
+                               Text="保留任务栏"
+                               FontSize="11"
+                               Foreground="#E6FFFFFF"
+                               VerticalAlignment="Center"/>
+                </Button>
+
+                <Border x:Name="ExtraActionsDivider"
+                        IsVisible="False"
+                        Width="1"
+                        Height="14"
+                        Background="#33FFFFFF"
+                        Margin="2,0"
+                        VerticalAlignment="Center"/>
+
+                <Button x:Name="MinimizeButton"
+                        Width="26"
                         Height="24"
                         Padding="0"
                         Background="Transparent"
@@ -135,7 +184,8 @@
                                         Height="13"/>
                 </Button>
 
-                <Button Width="26"
+                <Button x:Name="RestoreButton"
+                        Width="26"
                         Height="24"
                         Padding="0"
                         Background="Transparent"
@@ -149,7 +199,8 @@
                                         Height="13"/>
                 </Button>
 
-                <Button Width="26"
+                <Button x:Name="FullScreenButton"
+                        Width="26"
                         Height="24"
                         Padding="0"
                         Background="Transparent"
@@ -163,7 +214,8 @@
                                         Height="13"/>
                 </Button>
 
-                <Button Width="26"
+                <Button x:Name="CloseButton"
+                        Width="26"
                         Height="24"
                         Padding="0"
                         Background="Transparent"
