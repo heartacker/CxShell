@@ -17,6 +17,7 @@ public partial class RdpMonitorWindow : Window
     private readonly Action<int> _onCloseRequested;
     private Rect _virtualSliceRect;
     private bool _keepTaskbar;
+    private bool _isWindowed;
     private ushort _buttonFlags;
     private double _pendingWheelY;
     private ushort _lastRemoteX;
@@ -87,11 +88,34 @@ public partial class RdpMonitorWindow : Window
 
     private void ApplyWindowGeometry()
     {
-        var rect = _keepTaskbar ? _screen.WorkingArea : _screen.Bounds;
         var scaling = _screen.Scaling > 0 ? _screen.Scaling : 1.0;
+        if (_isWindowed)
+        {
+            WindowDecorations = Avalonia.Controls.WindowDecorations.Full;
+            CanResize = true;
+            ShowInTaskbar = true;
+            var area = _screen.WorkingArea;
+            var w = Math.Max(640, area.Width * 0.78);
+            var h = Math.Max(420, area.Height * 0.78);
+            Position = new PixelPoint(
+                area.X + (int)((area.Width - w) / 2),
+                area.Y + (int)((area.Height - h) / 2));
+            Width = w / scaling;
+            Height = h / scaling;
+            ToggleWindowedModeButton.Content = "沉浸全屏";
+            ToggleImmersiveModeButton.IsVisible = false;
+            return;
+        }
+
+        WindowDecorations = Avalonia.Controls.WindowDecorations.None;
+        CanResize = false;
+        ShowInTaskbar = false;
+        var rect = _keepTaskbar ? _screen.WorkingArea : _screen.Bounds;
         Position = new PixelPoint(rect.X, rect.Y);
         Width = rect.Width / scaling;
         Height = rect.Height / scaling;
+        ToggleWindowedModeButton.Content = "窗口化";
+        ToggleImmersiveModeButton.IsVisible = true;
         ToggleImmersiveModeButton.Content = _keepTaskbar ? "真全屏" : "保留任务栏";
     }
 
@@ -122,7 +146,14 @@ public partial class RdpMonitorWindow : Window
 
     private void OnToggleImmersiveModeClick(object? sender, RoutedEventArgs e)
     {
+        _isWindowed = false;
         _keepTaskbar = !_keepTaskbar;
+        ApplyWindowGeometry();
+    }
+
+    private void OnToggleWindowedModeClick(object? sender, RoutedEventArgs e)
+    {
+        _isWindowed = !_isWindowed;
         ApplyWindowGeometry();
     }
 

@@ -44,6 +44,11 @@
                         FontSize="11"
                         Padding="8,3"
                         Click="OnToggleImmersiveModeClick"/>
+                <Button x:Name="ToggleWindowedModeButton"
+                        Content="窗口化"
+                        FontSize="11"
+                        Padding="8,3"
+                        Click="OnToggleWindowedModeClick"/>
                 <Button x:Name="CloseMonitorButton"
                         Content="关闭此屏"
                         FontSize="11"

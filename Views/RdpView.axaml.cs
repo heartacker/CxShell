@@ -35,6 +35,7 @@ public partial class RdpView : UserControl
     private TopLevel? _subscribedTopLevel;
     private readonly System.Collections.Generic.HashSet<int> _selectedMonitorIndices = new();
     private readonly System.Collections.Generic.Dictionary<int, RdpMonitorWindow> _secondaryMonitorWindows = new();
+    private int? _preferredPrimaryMonitorIndex;
     private Rect? _primarySliceRect;
     private ushort _lastRemotePointerX;
     private ushort _lastRemotePointerY;
@@ -207,18 +208,28 @@ public partial class RdpView : UserControl
         if (_selectedMonitorIndices.Count == 0)
             _selectedMonitorIndices.Add(currentIndex);
 
+        var activePrimaryIndex = _preferredPrimaryMonitorIndex.HasValue && _selectedMonitorIndices.Contains(_preferredPrimaryMonitorIndex.Value)
+            ? _preferredPrimaryMonitorIndex.Value
+            : currentIndex;
+
         for (var i = 0; i < screens.Count; i++)
         {
             var idx = i;
             var s = screens[i];
             var scalePct = (int)Math.Round(s.Scaling * 100);
-            var label = $"屏幕 {i + 1}{(s.IsPrimary ? " (主)" : string.Empty)} · {s.Bounds.Width}×{s.Bounds.Height} · {scalePct}%";
+            var label = $"屏幕 {i + 1} · {s.Bounds.Width}×{s.Bounds.Height} · {scalePct}%";
+            var row = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                ColumnSpacing = 8
+            };
             var cb = new CheckBox
             {
                 Content = label,
                 IsChecked = _selectedMonitorIndices.Contains(idx),
                 Foreground = Brushes.WhiteSmoke,
-                FontSize = 12
+                FontSize = 12,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
             cb.IsCheckedChanged += (_, _) =>
             {
@@ -234,11 +245,36 @@ public partial class RdpView : UserControl
                         return;
                     }
                     _selectedMonitorIndices.Remove(idx);
+                    if (_preferredPrimaryMonitorIndex == idx)
+                        _preferredPrimaryMonitorIndex = null;
                 }
 
                 ApplySelectedMonitorLayout();
+                PopulateMonitorCheckboxes();
             };
-            MonitorCheckboxList.Children.Add(cb);
+
+            var isPrimary = idx == activePrimaryIndex;
+            var primaryBtn = new Button
+            {
+                Content = isPrimary ? "★ 主屏" : "设为主屏",
+                FontSize = 11,
+                Padding = new Thickness(6, 2),
+                IsEnabled = !isPrimary,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            primaryBtn.Click += (_, _) =>
+            {
+                _selectedMonitorIndices.Add(idx);
+                _preferredPrimaryMonitorIndex = idx;
+                ApplySelectedMonitorLayout();
+                PopulateMonitorCheckboxes();
+            };
+
+            Grid.SetColumn(cb, 0);
+            Grid.SetColumn(primaryBtn, 1);
+            row.Children.Add(cb);
+            row.Children.Add(primaryBtn);
+            MonitorCheckboxList.Children.Add(row);
         }
     }
 
@@ -264,15 +300,17 @@ public partial class RdpView : UserControl
         selected.Sort((a, b) => a.Index.CompareTo(b.Index));
 
         var currentScreen = window.Screens.ScreenFromWindow(window) ?? window.Screens.Primary;
-        var primaryEntry = selected[0];
+        var hostEntry = selected[0];
+        var remotePrimaryEntry = selected[0];
         foreach (var item in selected)
         {
             if (currentScreen != null && item.Screen.Bounds == currentScreen.Bounds)
-            {
-                primaryEntry = item;
-                break;
-            }
+                hostEntry = item;
+            if (_preferredPrimaryMonitorIndex.HasValue && item.Index == _preferredPrimaryMonitorIndex.Value)
+                remotePrimaryEntry = item;
         }
+        if (!_preferredPrimaryMonitorIndex.HasValue)
+            remotePrimaryEntry = hostEntry;
 
         var minX = int.MaxValue;
         var minY = int.MaxValue;
@@ -287,10 +325,10 @@ public partial class RdpView : UserControl
         foreach (var item in selected)
         {
             var b = item.Screen.Bounds;
-            var left = b.X - primaryEntry.Screen.Bounds.X;
-            var top = b.Y - primaryEntry.Screen.Bounds.Y;
+            var left = b.X - remotePrimaryEntry.Screen.Bounds.X;
+            var top = b.Y - remotePrimaryEntry.Screen.Bounds.Y;
             var scale = Math.Clamp((int)Math.Round(item.Screen.Scaling * 100), 100, 500);
-            layouts.Add(new RdpMonitorRect(left, top, b.Width, b.Height, scale, item.Index == primaryEntry.Index));
+            layouts.Add(new RdpMonitorRect(left, top, b.Width, b.Height, scale, item.Index == remotePrimaryEntry.Index));
             sliceByIndex[item.Index] = new Rect(b.X - minX, b.Y - minY, b.Width, b.Height);
         }
 
@@ -305,7 +343,7 @@ public partial class RdpView : UserControl
             return;
         }
 
-        _primarySliceRect = sliceByIndex[primaryEntry.Index];
+        _primarySliceRect = sliceByIndex[hostEntry.Index];
         PrimarySliceSurface.Source = vm.Framebuffer;
         PrimarySliceSurface.SourceRect = _primarySliceRect.Value;
         PrimarySliceSurface.IsVisible = true;
@@ -314,7 +352,7 @@ public partial class RdpView : UserControl
         var activeSecondary = new System.Collections.Generic.HashSet<int>();
         foreach (var item in selected)
         {
-            if (item.Index == primaryEntry.Index)
+            if (item.Index == hostEntry.Index)
                 continue;
 
             activeSecondary.Add(item.Index);
