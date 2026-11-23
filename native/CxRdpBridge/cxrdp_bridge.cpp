@@ -2394,6 +2394,18 @@ BOOL cx_pre_connect(freerdp* instance)
     freerdp_settings_set_bool(instance->context->settings, FreeRDP_SupportDynamicChannels, TRUE);
     freerdp_settings_set_bool(instance->context->settings, FreeRDP_SupportDisplayControl, TRUE);
     freerdp_settings_set_bool(instance->context->settings, FreeRDP_UseMultimon, TRUE);
+    freerdp_settings_set_bool(instance->context->settings, FreeRDP_ForceMultimon, TRUE);
+
+    {
+        rdpMonitor initialMonitor{};
+        initialMonitor.x = 0;
+        initialMonitor.y = 0;
+        initialMonitor.width = static_cast<INT32>(freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopWidth));
+        initialMonitor.height = static_cast<INT32>(freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopHeight));
+        initialMonitor.is_primary = TRUE;
+        if (initialMonitor.width > 0 && initialMonitor.height > 0)
+            freerdp_settings_set_monitor_def_array_sorted(instance->context->settings, &initialMonitor, 1);
+    }
 
     if (clipboardEnabled)
     {

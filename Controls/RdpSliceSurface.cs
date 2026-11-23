@@ -52,6 +52,12 @@ public sealed class RdpSliceSurface : Control
             ? _sourceRect
             : new Rect(0, 0, bitmapSize.Width, bitmapSize.Height);
 
+        if (src.X >= bitmapSize.Width || src.Y >= bitmapSize.Height)
+        {
+            context.FillRectangle(Brushes.Black, new Rect(0, 0, Bounds.Width, Bounds.Height));
+            return;
+        }
+
         var clampedX = System.Math.Clamp(src.X, 0, bitmapSize.Width - 1);
         var clampedY = System.Math.Clamp(src.Y, 0, bitmapSize.Height - 1);
         var clampedW = System.Math.Clamp(src.Width, 1, bitmapSize.Width - clampedX);
