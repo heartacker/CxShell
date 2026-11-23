@@ -10,6 +10,7 @@ namespace CxShell.Views;
 
 public partial class RdpMonitorWindow : Window
 {
+    private readonly RdpView _ownerView;
     private readonly RdpViewModel _vm;
     private readonly Screen _screen;
     private readonly int _monitorIndex;
@@ -19,6 +20,7 @@ public partial class RdpMonitorWindow : Window
     private ushort _buttonFlags;
 
     public RdpMonitorWindow(
+        RdpView ownerView,
         RdpViewModel vm,
         Screen screen,
         int monitorIndex,
@@ -26,11 +28,18 @@ public partial class RdpMonitorWindow : Window
         Action<int> onCloseRequested)
     {
         InitializeComponent();
+        _ownerView = ownerView;
         _vm = vm;
         _screen = screen;
         _monitorIndex = monitorIndex;
         _virtualSliceRect = virtualSliceRect;
         _onCloseRequested = onCloseRequested;
+
+        AddHandler(KeyDownEvent, OnMonitorKeyDown, RoutingStrategies.Tunnel);
+        AddHandler(KeyUpEvent, OnMonitorKeyUp, RoutingStrategies.Tunnel);
+        AddHandler(DragDrop.DragOverEvent, (_, e) => _ownerView.ForwardDragOver(e));
+        AddHandler(DragDrop.DropEvent, (_, e) => _ownerView.ForwardDrop(e));
+        GotFocus += (_, _) => _ownerView.ForwardGotFocus();
 
         var scalePct = (int)Math.Round(screen.Scaling * 100);
         MonitorTitleText.Text = $"屏幕 {monitorIndex + 1} · {screen.Bounds.Width}×{screen.Bounds.Height} · {scalePct}%";
@@ -45,6 +54,16 @@ public partial class RdpMonitorWindow : Window
             _vm.FramebufferInvalidated -= OnFramebufferInvalidated;
             _vm.PropertyChanged -= OnViewModelPropertyChanged;
         };
+    }
+
+    private void OnMonitorKeyDown(object? sender, KeyEventArgs e)
+    {
+        _ownerView.ForwardKeyDown(e);
+    }
+
+    private void OnMonitorKeyUp(object? sender, KeyEventArgs e)
+    {
+        _ownerView.ForwardKeyUp(e);
     }
 
     public int MonitorIndex => _monitorIndex;

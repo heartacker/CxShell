@@ -311,7 +311,7 @@ public partial class RdpView : UserControl
             }
             else
             {
-                var monitorWin = new RdpMonitorWindow(vm, item.Screen, item.Index, slice, OnSecondaryMonitorCloseRequested);
+                var monitorWin = new RdpMonitorWindow(this, vm, item.Screen, item.Index, slice, OnSecondaryMonitorCloseRequested);
                 _secondaryMonitorWindows[item.Index] = monitorWin;
                 monitorWin.Show();
             }
@@ -714,6 +714,16 @@ public partial class RdpView : UserControl
         }
 
         SendKey(e, false);
+    }
+
+    internal void ForwardKeyDown(KeyEventArgs e) => OnFramebufferKeyDown(this, e);
+    internal void ForwardKeyUp(KeyEventArgs e) => OnFramebufferKeyUp(this, e);
+    internal void ForwardDragOver(DragEventArgs e) => OnRdpDragOver(this, e);
+    internal void ForwardDrop(DragEventArgs e) => OnRdpDrop(this, e);
+    internal void ForwardGotFocus()
+    {
+        SyncLocalLockKeysToRemote();
+        _ = SyncLocalClipboardToRemoteAsync();
     }
 
     private void SendPointer(PointerEventArgs e, ushort flags)

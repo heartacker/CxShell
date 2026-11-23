@@ -10,6 +10,7 @@
     <Grid>
         <controls:RdpSliceSurface x:Name="SliceSurface"
                                   Focusable="True"
+                                  DragDrop.AllowDrop="True"
                                   PointerMoved="OnSurfacePointerMoved"
                                   PointerPressed="OnSurfacePointerPressed"
                                   PointerReleased="OnSurfacePointerReleased"
