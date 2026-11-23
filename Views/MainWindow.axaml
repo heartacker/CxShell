@@ -28,11 +28,12 @@
     </atom:Window.LogoTemplate>
 
     <atom:Window.LeftAddOn>
-        <StackPanel x:Name="LeftToolbarAddOn"
-                    Orientation="Horizontal"
-                    Spacing="4"
-                    VerticalAlignment="Center"
-                    IsVisible="{Binding IsMainChromeVisible}">
+        <Grid VerticalAlignment="Center">
+            <StackPanel x:Name="LeftToolbarAddOn"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center"
+                        IsVisible="{Binding IsMainChromeVisible}">
             <atom:TextBlock Text="CxShell"
                             FontSize="14"
                             FontWeight="SemiBold"
@@ -200,15 +201,81 @@
                                    Click="OnArrangeMergeMenuItemClick"/>
                 </atom:MenuItem>
             </atom:Menu>
-        </StackPanel>
+            </StackPanel>
+
+            <!-- Fullscreen session tabs inside the existing top title bar -->
+            <ScrollViewer IsVisible="{Binding IsTerminalFullScreen}"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          VerticalAlignment="Center"
+                          Margin="4,0,8,0">
+                <ItemsControl ItemsSource="{Binding Tabs}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="4"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TerminalTabViewModel">
+                            <Border Padding="10,4,8,4"
+                                    CornerRadius="5"
+                                    Background="#26FFFFFF"
+                                    BorderBrush="{atom:SharedTokenResource ColorSplit}"
+                                    BorderThickness="1"
+                                    Cursor="Hand"
+                                    VerticalAlignment="Center"
+                                    PointerPressed="FullScreenTabItem_OnPointerPressed">
+                                <TextBlock Text="{Binding Title}"
+                                           Foreground="{atom:SharedTokenResource ColorText}"
+                                           FontSize="12"
+                                           MaxWidth="180"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
     </atom:Window.LeftAddOn>
 
     <atom:Window.RightAddOn>
-        <StackPanel x:Name="RightToolbarAddOn"
-                    Orientation="Horizontal"
-                    Spacing="4"
-                    VerticalAlignment="Center"
-                    IsVisible="{Binding IsMainChromeVisible}">
+        <Grid VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center"
+                        IsVisible="{Binding IsTerminalFullScreen}"
+                        Margin="0,0,4,0">
+                <Button Width="26"
+                        Height="24"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="最小化"
+                        Click="FullScreenMinimizeButton_OnClick">
+                    <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=MinusOutlined}"
+                                        Width="13"
+                                        Height="13"/>
+                </Button>
+                <Button Width="26"
+                        Height="24"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="{Binding FullScreenEscBackText}"
+                        Click="FullScreenExitButton_OnClick">
+                    <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=FullscreenExitOutlined}"
+                                        Width="13"
+                                        Height="13"/>
+                </Button>
+            </StackPanel>
+            <StackPanel x:Name="RightToolbarAddOn"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center"
+                        IsVisible="{Binding IsMainChromeVisible}">
             <atom:Menu x:Name="LanguageMenu"
                        SizeType="Small"
                        IsMotionEnabled="False"
@@ -272,6 +339,7 @@
                          atom:ToolTip.Tip="{Binding SettingsToolTip}"
                          atom:ToolTip.Placement="Bottom"/>
         </StackPanel>
+        </Grid>
     </atom:Window.RightAddOn>
 
     <atom:Window.Styles>
@@ -1014,32 +1082,102 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </Grid>
+                        <!-- Full-width top hover bar for MainWindow FullScreen (no center blue bar) -->
                         <Grid Grid.RowSpan="2"
                               IsVisible="{Binding IsTerminalFullScreen}"
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Top"
-                              Height="44"
-                              Background="Transparent"
-                              PointerEntered="FullScreenHintArea_OnPointerEntered"
-                              PointerExited="FullScreenHintArea_OnPointerExited">
-                            <Border Height="3"
-                                    Width="180"
-                                    HorizontalAlignment="Center"
+                              ZIndex="100">
+                            <Border Height="6"
+                                    HorizontalAlignment="Stretch"
                                     VerticalAlignment="Top"
-                                    Background="#64D8FF"
-                                    BoxShadow="0 0 12 0 #9964D8FF"/>
+                                    Background="Transparent"
+                                    PointerEntered="FullScreenHintArea_OnPointerEntered"/>
                             <Border IsVisible="{Binding IsFullScreenHintVisible}"
-                                    HorizontalAlignment="Center"
+                                    HorizontalAlignment="Stretch"
                                     VerticalAlignment="Top"
-                                    Margin="0,8,0,0"
-                                    Padding="14,6"
-                                    CornerRadius="6"
-                                    Background="#CC1F2933"
-                                    BorderBrush="#4464D8FF"
-                                    BorderThickness="1">
-                                <atom:TextBlock Text="{Binding FullScreenEscBackText}"
-                                                Foreground="White"
-                                                FontSize="13"/>
+                                    Padding="10,4,8,4"
+                                    Background="{atom:SharedTokenResource ColorBgContainer}"
+                                    BorderBrush="{atom:SharedTokenResource ColorSplit}"
+                                    BorderThickness="0,0,0,1"
+                                    BoxShadow="0 4 14 0 #66000000"
+                                    PointerEntered="FullScreenHintArea_OnPointerEntered"
+                                    PointerExited="FullScreenHintArea_OnPointerExited">
+                                <DockPanel LastChildFill="True">
+                                    <StackPanel DockPanel.Dock="Right"
+                                                Orientation="Horizontal"
+                                                Spacing="4"
+                                                VerticalAlignment="Center"
+                                                Margin="8,0,0,0">
+                                        <Button Width="28"
+                                                Height="24"
+                                                Padding="0"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                CornerRadius="4"
+                                                ToolTip.Tip="最小化"
+                                                Click="FullScreenMinimizeButton_OnClick">
+                                            <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=MinusOutlined}"
+                                                                Width="13"
+                                                                Height="13"/>
+                                        </Button>
+                                        <Button Width="28"
+                                                Height="24"
+                                                Padding="0"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                CornerRadius="4"
+                                                ToolTip.Tip="{Binding FullScreenEscBackText}"
+                                                Click="FullScreenExitButton_OnClick">
+                                            <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=FullscreenExitOutlined}"
+                                                                Width="13"
+                                                                Height="13"/>
+                                        </Button>
+                                        <Button Width="28"
+                                                Height="24"
+                                                Padding="0"
+                                                Background="Transparent"
+                                                Foreground="#FFFF7875"
+                                                BorderThickness="0"
+                                                CornerRadius="4"
+                                                ToolTip.Tip="关闭窗口"
+                                                Click="FullScreenCloseButton_OnClick">
+                                            <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=CloseOutlined}"
+                                                                Width="13"
+                                                                Height="13"/>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                                  VerticalScrollBarVisibility="Disabled"
+                                                  VerticalAlignment="Center">
+                                        <ItemsControl ItemsSource="{Binding Tabs}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:TerminalTabViewModel">
+                                                    <Border Padding="10,4,8,4"
+                                                            CornerRadius="5"
+                                                            Background="{atom:SharedTokenResource ColorBgLayout}"
+                                                            BorderBrush="{atom:SharedTokenResource ColorSplit}"
+                                                            BorderThickness="1"
+                                                            Cursor="Hand"
+                                                            PointerPressed="FullScreenTabItem_OnPointerPressed">
+                                                        <TextBlock Text="{Binding Title}"
+                                                                   Foreground="{atom:SharedTokenResource ColorText}"
+                                                                   FontSize="12"
+                                                                   MaxWidth="180"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </DockPanel>
                             </Border>
                         </Grid>
                     </Grid>

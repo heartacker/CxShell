@@ -1,8 +1,8 @@
 using System;
 using Avalonia;
+using Avalonia.ReactiveUI;
 using AtomUI;
 using CxShell.Services;
-using ReactiveUI.Avalonia;
 using Velopack;
 
 namespace CxShell;
@@ -26,7 +26,7 @@ internal class Program
     public static AppBuilder BuildAvaloniaApp()
     {
         return AppBuilder.Configure<App>()
-            .UseReactiveUI(builder => { })
+            .UseReactiveUI()
             .UseAtomUIPlatformDetect()
             .With(new MacOSPlatformOptions
             {

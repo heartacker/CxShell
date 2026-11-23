@@ -1,0 +1,182 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:atom="https://atomui.net"
+             xmlns:antdicons="https://atomui.net/icons/antdesign"
+             xmlns:views="using:CxShell.Views"
+             x:Class="CxShell.Controls.ImmersiveFloatingBar"
+             HorizontalAlignment="Center"
+             VerticalAlignment="Top"
+             IsVisible="False">
+    <Grid HorizontalAlignment="Center"
+          VerticalAlignment="Top">
+        <!-- Narrow top-center hotzone so remote desktop top-left/top-right controls remain clickable -->
+        <Border x:Name="FloatingHotzone"
+                Width="240"
+                Height="8"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Background="Transparent"
+                PointerEntered="FloatingBar_OnPointerEntered">
+            <Border Width="120"
+                    Height="3"
+                    CornerRadius="2"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Margin="0,1,0,0"
+                    Background="#AA64D8FF"
+                    BoxShadow="0 0 8 0 #8864D8FF"/>
+        </Border>
+
+        <!-- Expanded floating bar -->
+        <Border x:Name="FloatingBarPanel"
+                IsVisible="False"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Padding="8,4,6,4"
+                CornerRadius="0,0,8,8"
+                Background="#EB18202A"
+                BorderBrush="#5564D8FF"
+                BorderThickness="1,0,1,1"
+                BoxShadow="0 6 18 0 #77000000"
+                PointerEntered="FloatingBar_OnPointerEntered"
+                PointerExited="FloatingBar_OnPointerExited"
+                PointerPressed="FloatingBar_OnPointerPressed">
+            <StackPanel Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center">
+                <Button x:Name="PinButton"
+                        Width="26"
+                        Height="24"
+                        Padding="0"
+                        Background="Transparent"
+                        Foreground="#CCFFFFFF"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="固定/取消固定悬浮栏"
+                        Click="PinButton_OnClick">
+                    <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=PushpinOutlined}"
+                                        Width="13"
+                                        Height="13"/>
+                </Button>
+
+                <!-- Single-session title (used when ShowTabSwitcher=False, e.g. DetachedTabWindow) -->
+                <TextBlock x:Name="SingleTitleText"
+                           Foreground="White"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           MaxWidth="260"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"
+                           Margin="4,0,10,0"
+                           IsHitTestVisible="False"/>
+
+                <!-- Multi-tab switcher (used when ShowTabSwitcher=True, e.g. RdpWorkspaceWindow) -->
+                <ScrollViewer x:Name="TabSwitcherScroll"
+                              IsVisible="False"
+                              MaxWidth="520"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              VerticalAlignment="Center"
+                              Margin="2,0,6,0">
+                    <ItemsControl x:Name="FloatingTabItems">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="4"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="views:RdpWorkspaceTabItem">
+                                <Border Padding="8,3,4,3"
+                                        CornerRadius="4"
+                                        Background="{Binding FloatingTabBackground}"
+                                        Cursor="Hand"
+                                        PointerPressed="TabItem_OnPointerPressed">
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="4"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Title}"
+                                                   Foreground="White"
+                                                   FontSize="12"
+                                                   FontWeight="{Binding TitleFontWeight}"
+                                                   MaxWidth="140"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                        <Button Width="16"
+                                                Height="16"
+                                                Padding="0"
+                                                Background="Transparent"
+                                                Foreground="#CCFFFFFF"
+                                                BorderThickness="0"
+                                                CornerRadius="3"
+                                                ToolTip.Tip="关闭标签页"
+                                                Click="CloseTabButton_OnClick">
+                                            <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=CloseOutlined}"
+                                                                Width="10"
+                                                                Height="10"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <Button Width="26"
+                        Height="24"
+                        Padding="0"
+                        Background="Transparent"
+                        Foreground="#E6FFFFFF"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="最小化"
+                        Click="MinimizeButton_OnClick">
+                    <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=MinusOutlined}"
+                                        Width="13"
+                                        Height="13"/>
+                </Button>
+
+                <Button Width="26"
+                        Height="24"
+                        Padding="0"
+                        Background="Transparent"
+                        Foreground="#E6FFFFFF"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="还原窗口"
+                        Click="RestoreButton_OnClick">
+                    <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=SwitcherOutlined}"
+                                        Width="13"
+                                        Height="13"/>
+                </Button>
+
+                <Button Width="26"
+                        Height="24"
+                        Padding="0"
+                        Background="Transparent"
+                        Foreground="#E6FFFFFF"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="切换全屏 (F11)"
+                        Click="FullScreenButton_OnClick">
+                    <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=FullscreenOutlined}"
+                                        Width="13"
+                                        Height="13"/>
+                </Button>
+
+                <Button Width="26"
+                        Height="24"
+                        Padding="0"
+                        Background="Transparent"
+                        Foreground="#FFFF7875"
+                        BorderThickness="0"
+                        CornerRadius="4"
+                        ToolTip.Tip="关闭窗口"
+                        Click="CloseButton_OnClick">
+                    <atom:IconPresenter Icon="{antdicons:AntDesignIconProvider Kind=CloseOutlined}"
+                                        Width="13"
+                                        Height="13"/>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

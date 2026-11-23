@@ -5,16 +5,13 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Media;
-using Avalonia.Threading;
 using CxShell.ViewModels;
 
 namespace CxShell.Views;
 
 /// <summary>
-/// Hosts a single terminal tab in its own top-level window. The tab view model
-/// is moved here from the main window, so its connections, buffers, and runtime
-/// state survive the move; closing this window closes that session.
+/// Hosts a single terminal/RDP tab in its own top-level window.
+/// Uses the shared ImmersiveFloatingBar (single-session mode) when maximized or full screen.
 /// </summary>
 public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
 {
@@ -22,19 +19,34 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
     private TerminalTabViewModel? _tab;
     private Action<TerminalTabViewModel>? _closeTab;
     private WindowState _windowStateBeforeFullScreen = WindowState.Normal;
-    private readonly DispatcherTimer _floatingBarHideTimer;
-    private bool _isPointerOverFloatingBar;
-    private bool _isFloatingBarPinned;
     private bool _disposed;
 
     public DetachedTabWindow()
     {
         InitializeComponent();
-        _floatingBarHideTimer = new DispatcherTimer
+
+        FloatingBar.MinimizeRequested += () => WindowState = WindowState.Minimized;
+        FloatingBar.RestoreRequested += () =>
         {
-            Interval = TimeSpan.FromMilliseconds(750)
+            WindowState = WindowState.Normal;
+            FocusActiveContent();
         };
-        _floatingBarHideTimer.Tick += (_, _) => HideFloatingBarIfNeeded();
+        FloatingBar.ToggleFullScreenRequested += () =>
+        {
+            ToggleFullScreen();
+            FocusActiveContent();
+        };
+        FloatingBar.CloseWindowRequested += Close;
+        FloatingBar.InteractionCompleted += FocusActiveContent;
+        FloatingBar.DragRestoreRequested += e =>
+        {
+            if (WindowState is WindowState.Maximized or WindowState.FullScreen)
+            {
+                WindowState = WindowState.Normal;
+                BeginMoveDrag(e);
+                e.Handled = true;
+            }
+        };
 
         Closed += OnClosed;
         PropertyChanged += OnWindowPropertyChanged;
@@ -55,6 +67,8 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
         {
             _tab = value;
             DataContext = value;
+            if (FloatingBar != null)
+                FloatingBar.SingleTitle = value?.Title ?? string.Empty;
         }
     }
 
@@ -78,11 +92,6 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
         return window;
     }
 
-    /// <summary>
-    /// Closes every detached window, which also releases the sessions they host.
-    /// The main window calls this so detaching a tab never keeps a connection
-    /// alive after the application window is gone.
-    /// </summary>
     public static void CloseAll()
     {
         foreach (var window in OpenWindows.ToArray())
@@ -93,7 +102,7 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        _floatingBarHideTimer.Stop();
+        FloatingBar?.StopTimer();
         OpenWindows.Remove(this);
         DisposeTab();
     }
@@ -128,12 +137,6 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
         }
     }
 
-    /// <summary>
-    /// Remembers the last non-fullscreen window state so leaving fullscreen can
-    /// restore whether the window was normal or maximized. The AtomUI caption
-    /// button toggles the state itself, so evaluating the current state here also
-    /// covers that path.
-    /// </summary>
     private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property != WindowStateProperty)
@@ -143,141 +146,12 @@ public partial class DetachedTabWindow : AtomUI.Desktop.Controls.Window
         if (state != WindowState.FullScreen)
             _windowStateBeforeFullScreen = state;
 
-        UpdateImmersiveChrome(state);
-    }
-
-    private void UpdateImmersiveChrome(WindowState state)
-    {
         var isImmersive = state is WindowState.Maximized or WindowState.FullScreen;
         IsTitleBarVisible = !isImmersive;
-
-        if (FloatingTitleBarHost == null || FloatingTitleBarPanel == null)
-            return;
-
-        FloatingTitleBarHost.IsVisible = isImmersive;
-        if (!isImmersive)
-        {
-            _floatingBarHideTimer.Stop();
-            _isPointerOverFloatingBar = false;
-            FloatingTitleBarPanel.IsVisible = false;
-            return;
-        }
-
-        // Briefly reveal the floating title bar when entering Maximized/FullScreen
-        // so the user can discover it immediately, then auto-hide unless pinned.
-        FloatingTitleBarPanel.IsVisible = true;
-        if (!_isFloatingBarPinned)
-        {
-            _floatingBarHideTimer.Interval = TimeSpan.FromMilliseconds(1500);
-            _floatingBarHideTimer.Stop();
-            _floatingBarHideTimer.Start();
-        }
-    }
-
-    private void FloatingTitleBar_OnPointerEntered(object? sender, PointerEventArgs e)
-    {
-        _isPointerOverFloatingBar = true;
-        _floatingBarHideTimer.Stop();
-
-        if (FloatingTitleBarPanel != null && WindowState is WindowState.Maximized or WindowState.FullScreen)
-            FloatingTitleBarPanel.IsVisible = true;
-    }
-
-    private void FloatingTitleBar_OnPointerExited(object? sender, PointerEventArgs e)
-    {
-        _isPointerOverFloatingBar = false;
-        if (_isFloatingBarPinned)
-            return;
-
-        _floatingBarHideTimer.Interval = TimeSpan.FromMilliseconds(750);
-        _floatingBarHideTimer.Stop();
-        _floatingBarHideTimer.Start();
-    }
-
-    private void HideFloatingBarIfNeeded()
-    {
-        _floatingBarHideTimer.Stop();
-        if (_isPointerOverFloatingBar || _isFloatingBarPinned)
-            return;
-
-        if (FloatingTitleBarPanel != null)
-            FloatingTitleBarPanel.IsVisible = false;
-    }
-
-    private void FloatingTitleBar_OnPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-            return;
-
-        // Allow dragging the floating bar to restore to Normal window state.
-        if (e.Source is Control source && IsInsideButton(source))
-            return;
-
-        if (WindowState is WindowState.Maximized or WindowState.FullScreen)
-        {
-            WindowState = WindowState.Normal;
-            BeginMoveDrag(e);
-            e.Handled = true;
-        }
-    }
-
-    private static bool IsInsideButton(Control? control)
-    {
-        while (control != null)
-        {
-            if (control is Button)
-                return true;
-            control = control.Parent as Control;
-        }
-
-        return false;
-    }
-
-    private void PinFloatingBarButton_OnClick(object? sender, RoutedEventArgs e)
-    {
-        _isFloatingBarPinned = !_isFloatingBarPinned;
-        if (PinFloatingBarButton != null)
-        {
-            PinFloatingBarButton.Background = _isFloatingBarPinned
-                ? new SolidColorBrush(Color.Parse("#4464D8FF"))
-                : Brushes.Transparent;
-        }
-
-        if (_isFloatingBarPinned)
-        {
-            _floatingBarHideTimer.Stop();
-            if (FloatingTitleBarPanel != null)
-                FloatingTitleBarPanel.IsVisible = true;
-        }
-        else if (!_isPointerOverFloatingBar)
-        {
-            _floatingBarHideTimer.Interval = TimeSpan.FromMilliseconds(500);
-            _floatingBarHideTimer.Start();
-        }
-
-        FocusActiveContent();
-    }
-
-    private void MinimizeButton_OnClick(object? sender, RoutedEventArgs e)
-    {
-        WindowState = WindowState.Minimized;
-    }
-
-    private void RestoreButton_OnClick(object? sender, RoutedEventArgs e)
-    {
-        WindowState = WindowState.Normal;
-        FocusActiveContent();
-    }
-
-    private void FullScreenButton_OnClick(object? sender, RoutedEventArgs e)
-    {
-        ToggleFullScreen();
-        FocusActiveContent();
-    }
-
-    private void CloseButton_OnClick(object? sender, RoutedEventArgs e)
-    {
-        Close();
+        WindowDecorations = state == WindowState.FullScreen
+            ? WindowDecorations.None
+            : WindowDecorations.Full;
+        FloatingBar?.SetImmersiveActive(isImmersive);
     }
 
     private void FocusActiveContent()

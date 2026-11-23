@@ -14,6 +14,8 @@ namespace CxShell.Views;
 public partial class RdpWorkspaceTabItem : ObservableObject
 {
     private static readonly IBrush SelectedBrush = new SolidColorBrush(Color.Parse("#2B3440"));
+    private static readonly IBrush FloatingSelectedBrush = new SolidColorBrush(Color.Parse("#4464D8FF"));
+    private static readonly IBrush FloatingUnselectedBrush = new SolidColorBrush(Color.Parse("#1FFFFFFF"));
     private static readonly IBrush UnselectedBrush = Brushes.Transparent;
 
     public RdpWorkspaceTabItem(TerminalTabViewModel tab)
@@ -26,10 +28,12 @@ public partial class RdpWorkspaceTabItem : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TabBackground))]
+    [NotifyPropertyChangedFor(nameof(FloatingTabBackground))]
     [NotifyPropertyChangedFor(nameof(TitleFontWeight))]
     private bool _isSelected;
 
     public IBrush TabBackground => IsSelected ? SelectedBrush : UnselectedBrush;
+    public IBrush FloatingTabBackground => IsSelected ? FloatingSelectedBrush : FloatingUnselectedBrush;
     public FontWeight TitleFontWeight => IsSelected ? FontWeight.SemiBold : FontWeight.Normal;
 }
 
@@ -47,6 +51,32 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
         InitializeComponent();
         TabStripItems.ItemsSource = _tabs;
         RdpViewsItems.ItemsSource = _tabs;
+
+        FloatingBar.TabItemsSource = _tabs;
+        FloatingBar.TabSelected += item =>
+        {
+            if (item is RdpWorkspaceTabItem tabItem)
+                SelectTab(tabItem);
+        };
+        FloatingBar.TabCloseRequested += item =>
+        {
+            if (item is RdpWorkspaceTabItem tabItem)
+                CloseTabItem(tabItem);
+        };
+        FloatingBar.MinimizeRequested += () => WindowState = WindowState.Minimized;
+        FloatingBar.RestoreRequested += () => WindowState = WindowState.Normal;
+        FloatingBar.ToggleFullScreenRequested += ToggleFullScreen;
+        FloatingBar.CloseWindowRequested += Close;
+        FloatingBar.DragRestoreRequested += e =>
+        {
+            if (WindowState is WindowState.Maximized or WindowState.FullScreen)
+            {
+                WindowState = WindowState.Normal;
+                BeginMoveDrag(e);
+                e.Handled = true;
+            }
+        };
+
         Closed += OnClosed;
         PropertyChanged += OnWindowPropertyChanged;
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -88,8 +118,29 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
     {
         foreach (var existing in _tabs)
             existing.IsSelected = ReferenceEquals(existing, item);
+    }
 
-        Title = $"{item.Title} - RDP";
+    private void DetachTabItem(RdpWorkspaceTabItem item)
+    {
+        var wasSelected = item.IsSelected;
+        var index = _tabs.IndexOf(item);
+        if (index < 0)
+            return;
+
+        _tabs.RemoveAt(index);
+        DetachedTabWindow.ShowFor(item.Tab);
+
+        if (_tabs.Count == 0)
+        {
+            Close();
+            return;
+        }
+
+        if (wasSelected)
+        {
+            var nextIndex = Math.Min(index, _tabs.Count - 1);
+            SelectTab(_tabs[nextIndex]);
+        }
     }
 
     private void CloseTabItem(RdpWorkspaceTabItem item)
@@ -124,8 +175,35 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
 
     private void TabItem_OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (e.Source is Control source && IsInsideButton(source))
+            return;
+
         if (sender is Control { DataContext: RdpWorkspaceTabItem item })
+        {
             SelectTab(item);
+            e.Handled = true;
+        }
+    }
+
+    private static bool IsInsideButton(Control? control)
+    {
+        while (control != null)
+        {
+            if (control is Button)
+                return true;
+            control = control.Parent as Control;
+        }
+
+        return false;
+    }
+
+    private void DetachTabButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: RdpWorkspaceTabItem item })
+        {
+            e.Handled = true;
+            DetachTabItem(item);
+        }
     }
 
     private void CloseTabButton_OnClick(object? sender, RoutedEventArgs e)
@@ -139,6 +217,7 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        FloatingBar?.StopTimer();
         if (ReferenceEquals(_instance, this))
             _instance = null;
 
@@ -162,8 +241,16 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
         if (e.Property != WindowStateProperty)
             return;
 
-        if (WindowState != WindowState.FullScreen)
-            _windowStateBeforeFullScreen = WindowState;
+        var state = WindowState;
+        if (state != WindowState.FullScreen)
+            _windowStateBeforeFullScreen = state;
+
+        var isImmersive = state is WindowState.Maximized or WindowState.FullScreen;
+        IsTitleBarVisible = !isImmersive;
+        WindowDecorations = state == WindowState.FullScreen
+            ? WindowDecorations.None
+            : WindowDecorations.Full;
+        FloatingBar?.SetImmersiveActive(isImmersive);
     }
 
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
@@ -178,12 +265,16 @@ public partial class RdpWorkspaceWindow : AtomUI.Desktop.Controls.Window
         if (e.Key != Key.F11)
             return;
 
+        ToggleFullScreen();
+        e.Handled = true;
+    }
+
+    private void ToggleFullScreen()
+    {
         if (WindowState == WindowState.FullScreen)
             ExitFullScreen();
         else
             WindowState = WindowState.FullScreen;
-
-        e.Handled = true;
     }
 
     private void ExitFullScreen()

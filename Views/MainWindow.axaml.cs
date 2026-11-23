@@ -92,6 +92,10 @@ public partial class MainWindow : AtomWindow
         {
             if (e.PropertyName == nameof(MainWindowViewModel.IsTerminalFullScreen))
             {
+                IsTitleBarVisible = !vm.IsTerminalFullScreen;
+                WindowDecorations = vm.IsTerminalFullScreen
+                    ? Avalonia.Controls.WindowDecorations.None
+                    : Avalonia.Controls.WindowDecorations.Full;
                 WindowState = vm.IsTerminalFullScreen
                     ? Avalonia.Controls.WindowState.FullScreen
                     : Avalonia.Controls.WindowState.Normal;
@@ -1457,6 +1461,32 @@ public partial class MainWindow : AtomWindow
     {
         _isPointerOverFullScreenHintArea = false;
         RestartFullScreenHintTimer();
+    }
+
+    private void FullScreenMinimizeButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        WindowState = Avalonia.Controls.WindowState.Minimized;
+    }
+
+    private void FullScreenExitButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm)
+            vm.ExitTerminalFullScreen();
+    }
+
+    private void FullScreenCloseButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void FullScreenTabItem_OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm &&
+            sender is Avalonia.Controls.Control { DataContext: TerminalTabViewModel tab })
+        {
+            vm.SelectedTab = tab;
+            e.Handled = true;
+        }
     }
 
     private void RestartFullScreenHintTimer()

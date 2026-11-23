@@ -406,13 +406,17 @@ if ($Triplet -like "*windows*") {
         "x64"
     }
 
-    $devEnv = cmd /c "`"call `"$VsDevCmdPath`" -arch=$vsArch -host_arch=x64 >nul && set`""
+    $devEnv = cmd /d /c "call `"$VsDevCmdPath`" -arch=$vsArch -host_arch=x64 >nul && set"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to load Visual Studio developer environment from $VsDevCmdPath."
+    }
     foreach ($line in $devEnv) {
         $index = $line.IndexOf("=")
         if ($index -gt 0) {
             [Environment]::SetEnvironmentVariable($line.Substring(0, $index), $line.Substring($index + 1), "Process")
         }
     }
+    $env:VCPKG_ROOT = $VcpkgRoot
 
     $clCommand = Get-Command cl.exe -ErrorAction SilentlyContinue
     if (!$clCommand) {

@@ -100,6 +100,7 @@ public partial class SessionTreeView : UserControl
         LocalizationService.Shared.LanguageChanged += OnLanguageChanged;
 
         if (NewSessionBtn != null) NewSessionBtn.Click += OnNewClick;
+        if (EditSessionBtn != null) EditSessionBtn.Click += OnEditClick;
         if (ImportSessionBtn != null) ImportSessionBtn.Click += OnImportClick;
         if (ExportSessionBtn != null) ExportSessionBtn.Click += OnExportClick;
     }
