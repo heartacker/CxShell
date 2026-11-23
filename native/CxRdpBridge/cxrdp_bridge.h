@@ -41,7 +41,7 @@ typedef void (*cxrdp_pointer_callback)(
     int hot_y,
     const uint8_t* bgra_pixels);
 
-#define CX_RDP_BRIDGE_API_VERSION 14u
+#define CX_RDP_BRIDGE_API_VERSION 15u
 #define CX_RDP_CAPABILITY_CLIPBOARD 0x00000001u
 #define CX_RDP_CAPABILITY_DRIVE_REDIRECTION 0x00000002u
 #define CX_RDP_CAPABILITY_AUDIO_PLAYBACK 0x00000004u
@@ -57,6 +57,7 @@ typedef void (*cxrdp_pointer_callback)(
 #define CX_RDP_CAPABILITY_CLIPBOARD_RICH_TEXT 0x00001000u
 #define CX_RDP_CAPABILITY_GRAPHICS_OPTIONS 0x00002000u
 #define CX_RDP_CAPABILITY_SYNC_LOCK_KEYS 0x00004000u
+#define CX_RDP_CAPABILITY_CLIPBOARD_LOCK 0x00008000u
 
 #define CX_RDP_POINTER_DEFAULT 0
 #define CX_RDP_POINTER_NULL 1
@@ -143,6 +144,9 @@ CX_RDP_API int cxrdp_set_security_mode(
 CX_RDP_API int cxrdp_set_graphics_options(
     void* handle,
     int enable_graphics_acceleration);
+CX_RDP_API int cxrdp_set_clipboard_lock_enabled(
+    void* handle,
+    int enabled);
 CX_RDP_API const char* cxrdp_get_last_error(void* handle);
 
 #ifdef __cplusplus

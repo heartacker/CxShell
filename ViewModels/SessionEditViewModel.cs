@@ -332,6 +332,7 @@ public partial class SessionEditViewModel : ObservableObject
     [ObservableProperty] private bool _rdpApplyKeyCombinations = true;
     [ObservableProperty] private bool _rdpEnableGraphicsAcceleration = true;
     [ObservableProperty] private bool _rdpSyncLockKeys = true;
+    [ObservableProperty] private bool _rdpEnableClipboardLock = true;
     [ObservableProperty] private bool _rdpRedirectDrives;
     [ObservableProperty] private string _rdpDriveName = "CxShell";
     [ObservableProperty] private string _rdpDrivePath = string.Empty;
@@ -1518,6 +1519,7 @@ public partial class SessionEditViewModel : ObservableObject
         RdpApplyKeyCombinations = session.RdpApplyKeyCombinations;
         RdpEnableGraphicsAcceleration = session.RdpEnableGraphicsAcceleration;
         RdpSyncLockKeys = session.RdpSyncLockKeys;
+        RdpEnableClipboardLock = session.RdpEnableClipboardLock;
         RdpRedirectDrives = session.RdpRedirectDrives;
         RdpDriveName = string.IsNullOrWhiteSpace(session.RdpDriveName) ? "CxShell" : session.RdpDriveName;
         RdpDrivePath = session.RdpDrivePath ?? string.Empty;
@@ -1824,6 +1826,7 @@ public partial class SessionEditViewModel : ObservableObject
         session.RdpApplyKeyCombinations = RdpApplyKeyCombinations;
         session.RdpEnableGraphicsAcceleration = RdpEnableGraphicsAcceleration;
         session.RdpSyncLockKeys = RdpSyncLockKeys;
+        session.RdpEnableClipboardLock = RdpEnableClipboardLock;
         session.RdpRedirectDrives = RdpRedirectDrives;
         session.RdpDriveName = string.IsNullOrWhiteSpace(RdpDriveName) ? "CxShell" : RdpDriveName.Trim();
         session.RdpDrivePath = RdpRedirectDrives ? RdpDrivePath.Trim() : string.Empty;

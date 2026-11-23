@@ -14,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #if defined(_WIN32)
@@ -110,6 +111,7 @@ struct CxRdpSession
     bool microphone_enabled = false;
     bool apply_key_combinations_remotely = true;
     bool graphics_acceleration_enabled = true;
+    bool clipboard_lock_enabled = true;
     uint32_t desktop_scale_factor = 100;
     uint32_t device_scale_factor = 100;
     std::string preferred_security_mode;
@@ -146,11 +148,14 @@ struct CxRdpSession
     std::vector<uint8_t> local_clipboard_png;
     std::vector<uint8_t> local_clipboard_dib;
     std::vector<LocalClipboardFileEntry> local_clipboard_files;
+    std::unordered_map<uint32_t, std::vector<LocalClipboardFileEntry>> locked_clipboard_files;
     std::vector<RemoteClipboardFileEntry> remote_clipboard_files;
     std::vector<std::string> remote_clipboard_top_level_paths;
     size_t remote_file_download_index = 0;
     uint32_t remote_file_stream_id = 1;
     bool remote_file_requesting_size = false;
+    int last_upload_progress_pct = -1;
+    int last_download_progress_pct = -1;
 };
 
 struct CxRdpContext
@@ -992,6 +997,8 @@ UINT send_client_capabilities(CliprdrClientContext* cliprdr)
         CB_STREAM_FILECLIP_ENABLED |
         CB_FILECLIP_NO_FILE_PATHS |
         CB_HUGE_FILE_SUPPORT_ENABLED;
+    if (!session || session->clipboard_lock_enabled)
+        generalCapabilitySet.generalFlags |= CB_CAN_LOCK_CLIPDATA;
 
     CLIPRDR_CAPABILITIES capabilities{};
     capabilities.common.msgType = CB_CLIP_CAPS;
@@ -1767,8 +1774,15 @@ UINT cx_cliprdr_server_lock_clipboard_data(
     CliprdrClientContext* cliprdr,
     const CLIPRDR_LOCK_CLIPBOARD_DATA* lockClipboardData)
 {
-    (void)cliprdr;
-    (void)lockClipboardData;
+    if (!cliprdr || !lockClipboardData)
+        return CHANNEL_RC_OK;
+
+    if (auto* session = static_cast<CxRdpSession*>(cliprdr->custom))
+    {
+        std::lock_guard<std::mutex> lock(session->clipboard_mutex);
+        if (session->clipboard_lock_enabled && !session->local_clipboard_files.empty())
+            session->locked_clipboard_files[lockClipboardData->clipDataId] = session->local_clipboard_files;
+    }
     return CHANNEL_RC_OK;
 }
 
@@ -1776,8 +1790,14 @@ UINT cx_cliprdr_server_unlock_clipboard_data(
     CliprdrClientContext* cliprdr,
     const CLIPRDR_UNLOCK_CLIPBOARD_DATA* unlockClipboardData)
 {
-    (void)cliprdr;
-    (void)unlockClipboardData;
+    if (!cliprdr || !unlockClipboardData)
+        return CHANNEL_RC_OK;
+
+    if (auto* session = static_cast<CxRdpSession*>(cliprdr->custom))
+    {
+        std::lock_guard<std::mutex> lock(session->clipboard_mutex);
+        session->locked_clipboard_files.erase(unlockClipboardData->clipDataId);
+    }
     return CHANNEL_RC_OK;
 }
 
@@ -2025,7 +2045,18 @@ UINT cx_cliprdr_server_file_contents_request(
     if (session)
     {
         std::lock_guard<std::mutex> lock(session->clipboard_mutex);
-        if (session->local_clipboard_kind == 2 &&
+        if (fileContentsRequest->haveClipDataId)
+        {
+            const auto it = session->locked_clipboard_files.find(fileContentsRequest->clipDataId);
+            if (it != session->locked_clipboard_files.end() &&
+                fileContentsRequest->listIndex < it->second.size())
+            {
+                entry = it->second[fileContentsRequest->listIndex];
+                found = true;
+            }
+        }
+        if (!found &&
+            session->local_clipboard_kind == 2 &&
             fileContentsRequest->listIndex < session->local_clipboard_files.size())
         {
             entry = session->local_clipboard_files[fileContentsRequest->listIndex];
@@ -2060,6 +2091,27 @@ UINT cx_cliprdr_server_file_contents_request(
             response.common.msgFlags = CB_RESPONSE_OK;
             response.cbRequested = bytesRead;
             response.requestedData = payload.empty() ? nullptr : payload.data();
+
+            if (session && entry.file_size > 0)
+            {
+                const uint64_t sent = offset + bytesRead;
+                const int pct = static_cast<int>(sent >= entry.file_size ? 100 : (sent * 100) / entry.file_size);
+                bool shouldNotify = false;
+                {
+                    std::lock_guard<std::mutex> lock(session->clipboard_mutex);
+                    if (pct == 100 || session->last_upload_progress_pct < 0 || pct - session->last_upload_progress_pct >= 10)
+                    {
+                        session->last_upload_progress_pct = pct == 100 ? -1 : pct;
+                        shouldNotify = true;
+                    }
+                }
+                if (shouldNotify)
+                {
+                    std::ostringstream msg;
+                    msg << "RDP clipboard uploading " << entry.relative_name << " (" << pct << "%)";
+                    notify_status(session, msg.str().c_str());
+                }
+            }
         }
     }
 
@@ -2115,6 +2167,20 @@ UINT cx_cliprdr_server_file_contents_response(
                         reinterpret_cast<const char*>(fileContentsResponse->requestedData),
                         static_cast<std::streamsize>(fileContentsResponse->cbRequested));
                     entry.received_bytes += fileContentsResponse->cbRequested;
+                    if (entry.expected_size > 0)
+                    {
+                        const int pct = static_cast<int>(
+                            entry.received_bytes >= entry.expected_size
+                                ? 100
+                                : (entry.received_bytes * 100) / entry.expected_size);
+                        if (pct == 100 || session->last_download_progress_pct < 0 || pct - session->last_download_progress_pct >= 10)
+                        {
+                            session->last_download_progress_pct = pct == 100 ? -1 : pct;
+                            std::ostringstream msg;
+                            msg << "RDP clipboard downloading " << entry.relative_name << " (" << pct << "%)";
+                            notify_status(session, msg.str().c_str());
+                        }
+                    }
                 }
                 else
                 {
@@ -2963,7 +3029,8 @@ CX_RDP_API uint32_t cxrdp_get_capabilities(void)
            CX_RDP_CAPABILITY_DIRTY_RECT |
            CX_RDP_CAPABILITY_CLIPBOARD_RICH_TEXT |
            CX_RDP_CAPABILITY_GRAPHICS_OPTIONS |
-           CX_RDP_CAPABILITY_SYNC_LOCK_KEYS;
+           CX_RDP_CAPABILITY_SYNC_LOCK_KEYS |
+           CX_RDP_CAPABILITY_CLIPBOARD_LOCK;
 }
 
 CX_RDP_API void* cxrdp_create(void)
@@ -3425,6 +3492,24 @@ CX_RDP_API int cxrdp_set_graphics_options(
     }
 
     session->graphics_acceleration_enabled = enable_graphics_acceleration != 0;
+    return 0;
+}
+
+CX_RDP_API int cxrdp_set_clipboard_lock_enabled(
+    void* handle,
+    int enabled)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session)
+        return -1;
+
+    if (session->running)
+    {
+        set_error(session, "RDP clipboard lock option must be configured before connecting.");
+        return -2;
+    }
+
+    session->clipboard_lock_enabled = enabled != 0;
     return 0;
 }
 

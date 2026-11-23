@@ -45,6 +45,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint ClipboardRichTextCapability = 0x00001000;
     private const uint GraphicsOptionsCapability = 0x00002000;
     private const uint SyncLockKeysCapability = 0x00004000;
+    private const uint ClipboardLockCapability = 0x00008000;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
@@ -57,6 +58,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint ClipboardRichTextApiVersion = 12;
     private const uint GraphicsOptionsApiVersion = 13;
     private const uint SyncLockKeysApiVersion = 14;
+    private const uint ClipboardLockApiVersion = 15;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -337,6 +339,23 @@ public sealed class RdpBridgeClient : IDisposable
                 throw new InvalidOperationException(
                     string.IsNullOrWhiteSpace(error)
                         ? $"RDP graphics options configuration failed: {graphicsResult}"
+                        : error);
+            }
+        }
+
+        if (nativeApiVersion >= ClipboardLockApiVersion &&
+            (nativeCapabilities & ClipboardLockCapability) != 0)
+        {
+            var lockResult = NativeMethods.cxrdp_set_clipboard_lock_enabled(
+                _handle,
+                session.RdpEnableClipboardLock ? 1 : 0);
+            if (lockResult != 0)
+            {
+                var error = GetLastError();
+                Disconnect();
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(error)
+                        ? $"RDP clipboard lock configuration failed: {lockResult}"
                         : error);
             }
         }
@@ -1215,6 +1234,11 @@ public sealed class RdpBridgeClient : IDisposable
         public static extern int cxrdp_set_graphics_options(
             IntPtr handle,
             int enableGraphicsAcceleration);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int cxrdp_set_clipboard_lock_enabled(
+            IntPtr handle,
+            int enabled);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr cxrdp_get_last_error(IntPtr handle);

@@ -249,6 +249,7 @@ public partial class SessionTreeViewModel : ObservableObject
         target.RdpApplyKeyCombinations = source.RdpApplyKeyCombinations;
         target.RdpEnableGraphicsAcceleration = source.RdpEnableGraphicsAcceleration;
         target.RdpSyncLockKeys = source.RdpSyncLockKeys;
+        target.RdpEnableClipboardLock = source.RdpEnableClipboardLock;
         target.RdpRedirectDrives = source.RdpRedirectDrives;
         target.RdpDriveName = source.RdpDriveName;
         target.RdpDrivePath = source.RdpDrivePath;
@@ -1167,6 +1168,7 @@ public partial class SessionTreeViewModel : ObservableObject
             RdpApplyKeyCombinations = source.RdpApplyKeyCombinations,
             RdpEnableGraphicsAcceleration = source.RdpEnableGraphicsAcceleration,
             RdpSyncLockKeys = source.RdpSyncLockKeys,
+            RdpEnableClipboardLock = source.RdpEnableClipboardLock,
             RdpRedirectDrives = source.RdpRedirectDrives,
             RdpDriveName = source.RdpDriveName,
             RdpDrivePath = source.RdpDrivePath,

@@ -597,6 +597,7 @@ public class SessionInfo
     public bool RdpApplyKeyCombinations { get; set; } = true;
     public bool RdpEnableGraphicsAcceleration { get; set; } = true;
     public bool RdpSyncLockKeys { get; set; } = true;
+    public bool RdpEnableClipboardLock { get; set; } = true;
     public bool RdpRedirectDrives { get; set; }
     public string RdpDriveName { get; set; } = "CxShell";
     public string RdpDrivePath { get; set; } = string.Empty;

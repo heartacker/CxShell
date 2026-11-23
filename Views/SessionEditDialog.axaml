@@ -1697,6 +1697,9 @@
                                     <atom:CheckBox Content="同步 CapsLock / NumLock 锁定键状态"
                                                    atom:ToolTip.Tip="切入 RDP 窗口时自动将本地大小写与小键盘锁定状态同步到远端。"
                                                    IsChecked="{Binding RdpSyncLockKeys, Mode=TwoWay}"/>
+                                    <atom:CheckBox Content="启用剪贴板大文件锁定 (LockClipboardData)"
+                                                   atom:ToolTip.Tip="通过剪贴板传输大文件时锁定快照，防止中途复制其他内容导致传输中断。"
+                                                   IsChecked="{Binding RdpEnableClipboardLock, Mode=TwoWay}"/>
                                 </StackPanel>
 
                                 <atom:CheckBox Grid.Row="4"
