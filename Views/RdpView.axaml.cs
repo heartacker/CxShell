@@ -434,7 +434,9 @@ public partial class RdpView : UserControl
         foreach (var item in selected)
         {
             var b = item.Screen.Bounds;
-            sliceByIndex[item.Index] = new Rect(b.X - minX, b.Y - minY, b.Width, b.Height);
+            var w = Math.Clamp(b.Width & ~1, 200, 8192);
+            var h = Math.Clamp(b.Height & ~1, 200, 8192);
+            sliceByIndex[item.Index] = new Rect(b.X - minX, b.Y - minY, w, h);
         }
 
         // Mode 2: Local dual PBP screens -> Remote single merged ultrawide monitor

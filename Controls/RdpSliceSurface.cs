@@ -63,6 +63,18 @@ public sealed class RdpSliceSurface : Control
         var clampedW = System.Math.Clamp(src.Width, 1, bitmapSize.Width - clampedX);
         var clampedH = System.Math.Clamp(src.Height, 1, bitmapSize.Height - clampedY);
 
+        // Guard against bilinear edge bleeding from the adjacent monitor's right/bottom border
+        if (clampedX > 0 && clampedW > 2)
+        {
+            clampedX += 1;
+            clampedW -= 1;
+        }
+        if (clampedY > 0 && clampedH > 2)
+        {
+            clampedY += 1;
+            clampedH -= 1;
+        }
+
         context.DrawImage(
             _source,
             new Rect(clampedX, clampedY, clampedW, clampedH),
