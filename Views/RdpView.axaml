@@ -12,6 +12,7 @@
                 Background="#111111"
                 Cursor="Arrow"
                 ClipToBounds="True"
+                DragDrop.AllowDrop="True"
                 SizeChanged="OnViewportSizeChanged">
             <Image x:Name="FramebufferImage"
                    Source="{Binding Framebuffer}"

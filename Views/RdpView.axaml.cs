@@ -39,6 +39,8 @@ public partial class RdpView : UserControl
         InitializeComponent();
         AddHandler(KeyDownEvent, OnFramebufferKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyUpEvent, OnFramebufferKeyUp, RoutingStrategies.Tunnel);
+        AddHandler(DragDrop.DragOverEvent, OnRdpDragOver);
+        AddHandler(DragDrop.DropEvent, OnRdpDrop);
         AttachedToVisualTree += (_, _) =>
         {
             _isAttached = true;
@@ -296,6 +298,56 @@ public partial class RdpView : UserControl
     private void ConfigureInitialDisplay(RdpViewModel vm, Size viewportSize)
     {
         vm.ConfigureInitialDisplay(viewportSize, GetCurrentMonitorPixelSize(), GetRenderScaling());
+    }
+
+    private void OnRdpDragOver(object? sender, DragEventArgs e)
+    {
+        if (DataContext is RdpViewModel vm &&
+            vm.IsConnected &&
+            vm.IsClipboardChannelReady &&
+            e.DataTransfer.TryGetFiles() is { Length: > 0 })
+        {
+            e.DragEffects = DragDropEffects.Copy;
+            e.Handled = true;
+            return;
+        }
+
+        e.DragEffects = DragDropEffects.None;
+    }
+
+    private void OnRdpDrop(object? sender, DragEventArgs e)
+    {
+        if (DataContext is not RdpViewModel vm || !vm.IsConnected || !vm.IsClipboardChannelReady)
+            return;
+
+        var files = e.DataTransfer.TryGetFiles();
+        if (files == null || files.Length == 0)
+            return;
+
+        var paths = new System.Collections.Generic.List<string>(files.Length);
+        foreach (var item in files)
+        {
+            var path = item.Path?.LocalPath;
+            if (!string.IsNullOrWhiteSpace(path))
+                paths.Add(path);
+        }
+
+        if (paths.Count == 0)
+            return;
+
+        e.Handled = true;
+        var pathArray = paths.ToArray();
+        _ = DropFilesToRemoteAsync(vm, pathArray);
+    }
+
+    private async Task DropFilesToRemoteAsync(RdpViewModel vm, string[] paths)
+    {
+        vm.SetClipboardFiles(paths);
+        _lastSyncedClipboardFilesKey = string.Join("\n", paths);
+        _lastSyncedClipboardText = null;
+        _lastSyncedClipboardImageHash = null;
+        await Task.Delay(150);
+        SendClipboardPasteShortcut(vm);
     }
 
     private void SyncLocalLockKeysToRemote()
