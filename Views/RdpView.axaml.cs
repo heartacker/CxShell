@@ -31,6 +31,7 @@ public partial class RdpView : UserControl
     private WindowsRdpShortcutHook? _systemShortcutHook;
     private Cursor? _customRemoteCursor;
     private Avalonia.Media.Imaging.WriteableBitmap? _customRemoteCursorBitmap;
+    private TopLevel? _subscribedTopLevel;
     private double _pendingWheelY;
 
     public RdpView()
@@ -43,6 +44,7 @@ public partial class RdpView : UserControl
             _isAttached = true;
             Focus();
             StartClipboardListener();
+            SubscribeTopLevelScaling();
             if (DataContext is RdpViewModel vm)
                 ScheduleStart(vm);
             UpdateSystemShortcutHook();
@@ -52,6 +54,7 @@ public partial class RdpView : UserControl
             _isAttached = false;
             _hasKeyboardFocus = false;
             StopClipboardListener();
+            UnsubscribeTopLevelScaling();
             DisposeSystemShortcutHook();
             ReleaseTrackedModifiers();
             _pendingWheelY = 0;
@@ -290,6 +293,32 @@ public partial class RdpView : UserControl
     private void ConfigureInitialDisplay(RdpViewModel vm, Size viewportSize)
     {
         vm.ConfigureInitialDisplay(viewportSize, GetCurrentMonitorPixelSize(), GetRenderScaling());
+    }
+
+    private void OnTopLevelScalingChanged(object? sender, EventArgs e)
+    {
+        if (DataContext is RdpViewModel vm)
+            vm.RequestViewportResize(RdpViewport.Bounds.Size, GetRenderScaling());
+    }
+
+    private void SubscribeTopLevelScaling()
+    {
+        UnsubscribeTopLevelScaling();
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null)
+            return;
+
+        _subscribedTopLevel = topLevel;
+        _subscribedTopLevel.ScalingChanged += OnTopLevelScalingChanged;
+    }
+
+    private void UnsubscribeTopLevelScaling()
+    {
+        if (_subscribedTopLevel == null)
+            return;
+
+        _subscribedTopLevel.ScalingChanged -= OnTopLevelScalingChanged;
+        _subscribedTopLevel = null;
     }
 
     private double GetRenderScaling()
