@@ -2694,6 +2694,11 @@ void connection_thread(CxRdpSession* session)
             freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444v2, TRUE);
             freerdp_settings_set_bool(settings, FreeRDP_GfxThinClient, FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_GfxSmallCache, FALSE);
+            freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, TRUE);
+            freerdp_settings_set_uint32(
+                settings,
+                FreeRDP_MultitransportFlags,
+                TRANSPORT_TYPE_UDP_FECR | TRANSPORT_TYPE_UDP_FECL);
             freerdp_settings_set_bool(settings, FreeRDP_NegotiateSecurityLayer, profile.negotiate ? TRUE : FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, profile.nla ? TRUE : FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_TlsSecurity, profile.tls ? TRUE : FALSE);
