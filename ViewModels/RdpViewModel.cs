@@ -46,7 +46,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         Password = password;
         ScreenScalePercent = ResolveScreenScalePercent(session);
         IsFitToWindow = ResolveInitialFitToWindow(session, ScreenScalePercent);
-        _client.FramebufferUpdated += OnFramebufferUpdated;
+        _client.RawFrameReceived += OnRawFrameReceived;
         _client.StatusChanged += message => Dispatcher.UIThread.Post(() => HandleStatus(message));
         _client.ClipboardTextReceived += OnClipboardTextReceived;
         _client.ClipboardImageReceived += OnClipboardImageReceived;
@@ -326,6 +326,14 @@ public partial class RdpViewModel : ObservableObject, IDisposable
 
     public event Action<uint, byte[]>? RemoteClipboardImageReceived;
     public event Action<string[]>? RemoteClipboardFilesReceived;
+    public event Action? FramebufferInvalidated;
+
+    private readonly object _frameStagingLock = new();
+    private byte[]? _frameStagingPixels;
+    private int _frameStagingWidth;
+    private int _frameStagingHeight;
+    private int _frameStagingLength;
+    private int _frameUpdateScheduled;
 
     public void SetClipboardText(string text)
     {
@@ -387,29 +395,70 @@ public partial class RdpViewModel : ObservableObject, IDisposable
             : 100;
     }
 
-    private void OnFramebufferUpdated(object? sender, RdpFramebufferEventArgs e)
+    private void OnRawFrameReceived(int width, int height, int stride, IntPtr data)
     {
-        var pixels = new byte[e.Pixels.Length];
-        Buffer.BlockCopy(e.Pixels, 0, pixels, 0, pixels.Length);
-
-        Dispatcher.UIThread.Post(() =>
+        var length = checked(stride * height);
+        lock (_frameStagingLock)
         {
-            var bitmap = new WriteableBitmap(
-                new PixelSize(e.Width, e.Height),
-                new Vector(96, 96),
-                PixelFormat.Bgra8888,
-                AlphaFormat.Opaque);
+            if (_frameStagingPixels == null || _frameStagingPixels.Length < length)
+                _frameStagingPixels = new byte[length];
 
-            using (var locked = bitmap.Lock())
+            Marshal.Copy(data, _frameStagingPixels, 0, length);
+            _frameStagingWidth = width;
+            _frameStagingHeight = height;
+            _frameStagingLength = length;
+        }
+
+        if (Interlocked.Exchange(ref _frameUpdateScheduled, 1) == 0)
+            Dispatcher.UIThread.Post(ApplyPendingFramebuffer, DispatcherPriority.Render);
+    }
+
+    private void ApplyPendingFramebuffer()
+    {
+        Interlocked.Exchange(ref _frameUpdateScheduled, 0);
+
+        int width;
+        int height;
+        int length;
+        lock (_frameStagingLock)
+        {
+            if (_frameStagingPixels == null || _frameStagingWidth <= 0 || _frameStagingHeight <= 0 || _frameStagingLength <= 0)
+                return;
+
+            width = _frameStagingWidth;
+            height = _frameStagingHeight;
+            length = _frameStagingLength;
+
+            var bitmap = Framebuffer;
+            var recreated = bitmap == null ||
+                            bitmap.PixelSize.Width != width ||
+                            bitmap.PixelSize.Height != height;
+            if (recreated)
             {
-                var copyBytes = Math.Min(pixels.Length, locked.RowBytes * locked.Size.Height);
-                Marshal.Copy(pixels, 0, locked.Address, copyBytes);
+                bitmap = new WriteableBitmap(
+                    new PixelSize(width, height),
+                    new Vector(96, 96),
+                    PixelFormat.Bgra8888,
+                    AlphaFormat.Opaque);
             }
 
-            Framebuffer = bitmap;
-            RemoteWidth = e.Width;
-            RemoteHeight = e.Height;
-        });
+            using (var locked = bitmap!.Lock())
+            {
+                var copyBytes = Math.Min(length, locked.RowBytes * locked.Size.Height);
+                Marshal.Copy(_frameStagingPixels, 0, locked.Address, copyBytes);
+            }
+
+            if (recreated)
+            {
+                Framebuffer = bitmap;
+                RemoteWidth = width;
+                RemoteHeight = height;
+            }
+            else
+            {
+                FramebufferInvalidated?.Invoke();
+            }
+        }
     }
 
     private void OnClipboardTextReceived(string text)
@@ -431,7 +480,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
     {
         _resizeReconnectCts?.Cancel();
         _resizeReconnectCts?.Dispose();
-        _client.FramebufferUpdated -= OnFramebufferUpdated;
+        _client.RawFrameReceived -= OnRawFrameReceived;
         _client.ClipboardTextReceived -= OnClipboardTextReceived;
         _client.ClipboardImageReceived -= OnClipboardImageReceived;
         _client.ClipboardFilesReceived -= OnClipboardFilesReceived;

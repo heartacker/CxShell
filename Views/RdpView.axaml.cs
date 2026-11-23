@@ -80,6 +80,7 @@ public partial class RdpView : UserControl
         vm.PropertyChanged += OnViewModelPropertyChanged;
         vm.RemoteClipboardImageReceived += OnRemoteClipboardImageReceived;
         vm.RemoteClipboardFilesReceived += OnRemoteClipboardFilesReceived;
+        vm.FramebufferInvalidated += OnFramebufferInvalidated;
         ApplyScaleMode(vm);
         UpdateSystemShortcutHook();
         if (_isAttached)
@@ -114,8 +115,14 @@ public partial class RdpView : UserControl
         _boundVm.PropertyChanged -= OnViewModelPropertyChanged;
         _boundVm.RemoteClipboardImageReceived -= OnRemoteClipboardImageReceived;
         _boundVm.RemoteClipboardFilesReceived -= OnRemoteClipboardFilesReceived;
+        _boundVm.FramebufferInvalidated -= OnFramebufferInvalidated;
         _boundVm = null;
         DisposeSystemShortcutHook();
+    }
+
+    private void OnFramebufferInvalidated()
+    {
+        FramebufferImage.InvalidateVisual();
     }
 
     private void StartClipboardListener()

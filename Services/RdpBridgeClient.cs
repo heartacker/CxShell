@@ -69,6 +69,7 @@ public sealed class RdpBridgeClient : IDisposable
     }
 
     public event EventHandler<RdpFramebufferEventArgs>? FramebufferUpdated;
+    public event Action<int, int, int, IntPtr>? RawFrameReceived;
     public event Action<string>? StatusChanged;
     public event Action? Disconnected;
     public event Action<string>? ClipboardTextReceived;
@@ -690,10 +691,15 @@ public sealed class RdpBridgeClient : IDisposable
         if (width <= 0 || height <= 0 || stride <= 0 || data == IntPtr.Zero)
             return;
 
-        var length = checked(stride * height);
-        var pixels = new byte[length];
-        Marshal.Copy(data, pixels, 0, length);
-        FramebufferUpdated?.Invoke(this, new RdpFramebufferEventArgs(width, height, stride, pixels));
+        RawFrameReceived?.Invoke(width, height, stride, data);
+
+        if (FramebufferUpdated != null)
+        {
+            var length = checked(stride * height);
+            var pixels = new byte[length];
+            Marshal.Copy(data, pixels, 0, length);
+            FramebufferUpdated.Invoke(this, new RdpFramebufferEventArgs(width, height, stride, pixels));
+        }
     }
 
     private void OnStatus(IntPtr userData, IntPtr message)
