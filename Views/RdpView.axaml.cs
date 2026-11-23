@@ -36,6 +36,7 @@ public partial class RdpView : UserControl
     private readonly System.Collections.Generic.HashSet<int> _selectedMonitorIndices = new();
     private readonly System.Collections.Generic.Dictionary<int, RdpMonitorWindow> _secondaryMonitorWindows = new();
     private int? _preferredPrimaryMonitorIndex;
+    private int _ultrawideMode; // 0=standard, 1=local ultrawide -> remote dual, 2=local dual PBP -> remote single ultrawide
     private Rect? _primarySliceRect;
     private ushort _lastRemotePointerX;
     private ushort _lastRemotePointerY;
@@ -181,7 +182,42 @@ public partial class RdpView : UserControl
     private void OnMultiMonitorButtonClick(object? sender, RoutedEventArgs e)
     {
         PopulateMonitorCheckboxes();
+        UpdateUltrawideModeButtonStates();
         MultiMonitorPopup.IsOpen = !MultiMonitorPopup.IsOpen;
+    }
+
+    private void OnUltrawideModeStandardClick(object? sender, RoutedEventArgs e)
+    {
+        _ultrawideMode = 0;
+        UpdateUltrawideModeButtonStates();
+        ApplySelectedMonitorLayout();
+    }
+
+    private void OnUltrawideModeSplitDualClick(object? sender, RoutedEventArgs e)
+    {
+        _ultrawideMode = 1;
+        UpdateUltrawideModeButtonStates();
+        ApplySelectedMonitorLayout();
+    }
+
+    private void OnUltrawideModeMergeUltrawideClick(object? sender, RoutedEventArgs e)
+    {
+        _ultrawideMode = 2;
+        if (TopLevel.GetTopLevel(this) is Window window && window.Screens.All.Count >= 2 && _selectedMonitorIndices.Count < 2)
+        {
+            _selectedMonitorIndices.Add(0);
+            _selectedMonitorIndices.Add(1);
+            PopulateMonitorCheckboxes();
+        }
+        UpdateUltrawideModeButtonStates();
+        ApplySelectedMonitorLayout();
+    }
+
+    private void UpdateUltrawideModeButtonStates()
+    {
+        ModeStandardButton.FontWeight = _ultrawideMode == 0 ? FontWeight.Bold : FontWeight.Normal;
+        ModeSplitDualButton.FontWeight = _ultrawideMode == 1 ? FontWeight.Bold : FontWeight.Normal;
+        ModeMergeUltrawideButton.FontWeight = _ultrawideMode == 2 ? FontWeight.Bold : FontWeight.Normal;
     }
 
     private void PopulateMonitorCheckboxes()
@@ -314,10 +350,35 @@ public partial class RdpView : UserControl
 
         var minX = int.MaxValue;
         var minY = int.MaxValue;
+        var maxX = int.MinValue;
+        var maxY = int.MinValue;
         foreach (var item in selected)
         {
             if (item.Screen.Bounds.X < minX) minX = item.Screen.Bounds.X;
             if (item.Screen.Bounds.Y < minY) minY = item.Screen.Bounds.Y;
+            if (item.Screen.Bounds.Right > maxX) maxX = item.Screen.Bounds.Right;
+            if (item.Screen.Bounds.Bottom > maxY) maxY = item.Screen.Bounds.Bottom;
+        }
+
+        // Mode 1: Single local ultrawide -> Remote virtual dual monitors (left/right 50/50 split)
+        if (_ultrawideMode == 1)
+        {
+            CloseAllSecondaryMonitorWindows();
+            _primarySliceRect = null;
+            PrimarySliceSurface.IsVisible = false;
+            FramebufferImage.IsVisible = true;
+
+            var b = hostEntry.Screen.Bounds;
+            var halfW = Math.Max(200, (b.Width / 2) & ~1);
+            var h = Math.Max(200, b.Height & ~1);
+            var scale = Math.Clamp((int)Math.Round(hostEntry.Screen.Scaling * 100), 100, 500);
+            var splitLayouts = new System.Collections.Generic.List<RdpMonitorRect>
+            {
+                new(0, 0, halfW, h, scale, true),
+                new(halfW, 0, halfW, h, scale, false)
+            };
+            vm.TryResizeMonitors(splitLayouts);
+            return;
         }
 
         var layouts = new System.Collections.Generic.List<RdpMonitorRect>(selected.Count);
@@ -325,11 +386,27 @@ public partial class RdpView : UserControl
         foreach (var item in selected)
         {
             var b = item.Screen.Bounds;
-            var left = b.X - remotePrimaryEntry.Screen.Bounds.X;
-            var top = b.Y - remotePrimaryEntry.Screen.Bounds.Y;
-            var scale = Math.Clamp((int)Math.Round(item.Screen.Scaling * 100), 100, 500);
-            layouts.Add(new RdpMonitorRect(left, top, b.Width, b.Height, scale, item.Index == remotePrimaryEntry.Index));
             sliceByIndex[item.Index] = new Rect(b.X - minX, b.Y - minY, b.Width, b.Height);
+        }
+
+        // Mode 2: Local dual PBP screens -> Remote single merged ultrawide monitor
+        if (_ultrawideMode == 2 && selected.Count >= 2)
+        {
+            var totalW = Math.Clamp((maxX - minX) & ~1, 200, 8192);
+            var totalH = Math.Clamp((maxY - minY) & ~1, 200, 8192);
+            var scale = Math.Clamp((int)Math.Round(remotePrimaryEntry.Screen.Scaling * 100), 100, 500);
+            layouts.Add(new RdpMonitorRect(0, 0, totalW, totalH, scale, true));
+        }
+        else
+        {
+            foreach (var item in selected)
+            {
+                var b = item.Screen.Bounds;
+                var left = b.X - remotePrimaryEntry.Screen.Bounds.X;
+                var top = b.Y - remotePrimaryEntry.Screen.Bounds.Y;
+                var scale = Math.Clamp((int)Math.Round(item.Screen.Scaling * 100), 100, 500);
+                layouts.Add(new RdpMonitorRect(left, top, b.Width, b.Height, scale, item.Index == remotePrimaryEntry.Index));
+            }
         }
 
         vm.TryResizeMonitors(layouts);
