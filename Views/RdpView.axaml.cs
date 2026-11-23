@@ -33,6 +33,9 @@ public partial class RdpView : UserControl
     private Cursor? _customRemoteCursor;
     private Avalonia.Media.Imaging.WriteableBitmap? _customRemoteCursorBitmap;
     private TopLevel? _subscribedTopLevel;
+    private readonly System.Collections.Generic.HashSet<int> _selectedMonitorIndices = new();
+    private readonly System.Collections.Generic.Dictionary<int, RdpMonitorWindow> _secondaryMonitorWindows = new();
+    private Rect? _primarySliceRect;
     private double _pendingWheelY;
 
     public RdpView()
@@ -56,6 +59,7 @@ public partial class RdpView : UserControl
         {
             _isAttached = false;
             _hasKeyboardFocus = false;
+            CloseAllSecondaryMonitorWindows();
             StopClipboardListener();
             UnsubscribeTopLevelScaling();
             DisposeSystemShortcutHook();
@@ -136,7 +140,209 @@ public partial class RdpView : UserControl
 
     private void OnFramebufferInvalidated()
     {
-        FramebufferImage.InvalidateVisual();
+        if (PrimarySliceSurface.IsVisible && DataContext is RdpViewModel vm)
+        {
+            PrimarySliceSurface.Source = vm.Framebuffer;
+            PrimarySliceSurface.InvalidateVisual();
+        }
+        else
+        {
+            FramebufferImage.InvalidateVisual();
+        }
+    }
+
+    private void OnPrimaryTopHotZoneEntered(object? sender, PointerEventArgs e)
+    {
+        if (DataContext is RdpViewModel { IsConnected: true })
+            PrimaryFloatingBar.IsVisible = true;
+    }
+
+    private void OnPrimaryFloatingBarExited(object? sender, PointerEventArgs e)
+    {
+        if (!MultiMonitorPopup.IsOpen)
+            PrimaryFloatingBar.IsVisible = false;
+    }
+
+    private void OnMultiMonitorButtonClick(object? sender, RoutedEventArgs e)
+    {
+        PopulateMonitorCheckboxes();
+        MultiMonitorPopup.IsOpen = !MultiMonitorPopup.IsOpen;
+    }
+
+    private void PopulateMonitorCheckboxes()
+    {
+        MonitorCheckboxList.Children.Clear();
+        if (TopLevel.GetTopLevel(this) is not Window window)
+            return;
+
+        var screens = window.Screens.All;
+        if (screens.Count == 0)
+            return;
+
+        var currentScreen = window.Screens.ScreenFromWindow(window) ?? window.Screens.Primary;
+        var currentIndex = 0;
+        for (var i = 0; i < screens.Count; i++)
+        {
+            if (currentScreen != null && screens[i].Bounds == currentScreen.Bounds)
+            {
+                currentIndex = i;
+                break;
+            }
+        }
+
+        if (_selectedMonitorIndices.Count == 0)
+            _selectedMonitorIndices.Add(currentIndex);
+
+        for (var i = 0; i < screens.Count; i++)
+        {
+            var idx = i;
+            var s = screens[i];
+            var scalePct = (int)Math.Round(s.Scaling * 100);
+            var label = $"屏幕 {i + 1}{(s.IsPrimary ? " (主)" : string.Empty)} · {s.Bounds.Width}×{s.Bounds.Height} · {scalePct}%";
+            var cb = new CheckBox
+            {
+                Content = label,
+                IsChecked = _selectedMonitorIndices.Contains(idx),
+                Foreground = Brushes.WhiteSmoke,
+                FontSize = 12
+            };
+            cb.IsCheckedChanged += (_, _) =>
+            {
+                if (cb.IsChecked == true)
+                {
+                    _selectedMonitorIndices.Add(idx);
+                }
+                else
+                {
+                    if (_selectedMonitorIndices.Count <= 1)
+                    {
+                        cb.IsChecked = true;
+                        return;
+                    }
+                    _selectedMonitorIndices.Remove(idx);
+                }
+
+                ApplySelectedMonitorLayout();
+            };
+            MonitorCheckboxList.Children.Add(cb);
+        }
+    }
+
+    private void ApplySelectedMonitorLayout()
+    {
+        if (DataContext is not RdpViewModel vm || !vm.IsConnected || TopLevel.GetTopLevel(this) is not Window window)
+            return;
+
+        var screens = window.Screens.All;
+        if (screens.Count == 0 || _selectedMonitorIndices.Count == 0)
+            return;
+
+        var selected = new System.Collections.Generic.List<(int Index, Avalonia.Platform.Screen Screen)>();
+        foreach (var idx in _selectedMonitorIndices)
+        {
+            if (idx >= 0 && idx < screens.Count)
+                selected.Add((idx, screens[idx]));
+        }
+
+        if (selected.Count == 0)
+            return;
+
+        selected.Sort((a, b) => a.Index.CompareTo(b.Index));
+
+        var currentScreen = window.Screens.ScreenFromWindow(window) ?? window.Screens.Primary;
+        var primaryEntry = selected[0];
+        foreach (var item in selected)
+        {
+            if (currentScreen != null && item.Screen.Bounds == currentScreen.Bounds)
+            {
+                primaryEntry = item;
+                break;
+            }
+        }
+
+        var minX = int.MaxValue;
+        var minY = int.MaxValue;
+        foreach (var item in selected)
+        {
+            if (item.Screen.Bounds.X < minX) minX = item.Screen.Bounds.X;
+            if (item.Screen.Bounds.Y < minY) minY = item.Screen.Bounds.Y;
+        }
+
+        var layouts = new System.Collections.Generic.List<RdpMonitorRect>(selected.Count);
+        var sliceByIndex = new System.Collections.Generic.Dictionary<int, Rect>();
+        foreach (var item in selected)
+        {
+            var b = item.Screen.Bounds;
+            var left = b.X - primaryEntry.Screen.Bounds.X;
+            var top = b.Y - primaryEntry.Screen.Bounds.Y;
+            var scale = Math.Clamp((int)Math.Round(item.Screen.Scaling * 100), 100, 500);
+            layouts.Add(new RdpMonitorRect(left, top, b.Width, b.Height, scale, item.Index == primaryEntry.Index));
+            sliceByIndex[item.Index] = new Rect(b.X - minX, b.Y - minY, b.Width, b.Height);
+        }
+
+        vm.TryResizeMonitors(layouts);
+
+        if (selected.Count == 1)
+        {
+            CloseAllSecondaryMonitorWindows();
+            _primarySliceRect = null;
+            PrimarySliceSurface.IsVisible = false;
+            FramebufferImage.IsVisible = true;
+            return;
+        }
+
+        _primarySliceRect = sliceByIndex[primaryEntry.Index];
+        PrimarySliceSurface.Source = vm.Framebuffer;
+        PrimarySliceSurface.SourceRect = _primarySliceRect.Value;
+        PrimarySliceSurface.IsVisible = true;
+        FramebufferImage.IsVisible = false;
+
+        var activeSecondary = new System.Collections.Generic.HashSet<int>();
+        foreach (var item in selected)
+        {
+            if (item.Index == primaryEntry.Index)
+                continue;
+
+            activeSecondary.Add(item.Index);
+            var slice = sliceByIndex[item.Index];
+            if (_secondaryMonitorWindows.TryGetValue(item.Index, out var existing))
+            {
+                existing.UpdateSlice(slice);
+            }
+            else
+            {
+                var monitorWin = new RdpMonitorWindow(vm, item.Screen, item.Index, slice, OnSecondaryMonitorCloseRequested);
+                _secondaryMonitorWindows[item.Index] = monitorWin;
+                monitorWin.Show();
+            }
+        }
+
+        var toClose = new System.Collections.Generic.List<int>();
+        foreach (var key in _secondaryMonitorWindows.Keys)
+        {
+            if (!activeSecondary.Contains(key))
+                toClose.Add(key);
+        }
+        foreach (var key in toClose)
+        {
+            if (_secondaryMonitorWindows.Remove(key, out var win))
+                win.Close();
+        }
+    }
+
+    private void OnSecondaryMonitorCloseRequested(int monitorIndex)
+    {
+        _selectedMonitorIndices.Remove(monitorIndex);
+        if (_secondaryMonitorWindows.Remove(monitorIndex, out var win))
+            win.Close();
+        ApplySelectedMonitorLayout();
+    }
+
+    private void CloseAllSecondaryMonitorWindows()
+    {
+        foreach (var win in _secondaryMonitorWindows.Values)
+            win.Close();
+        _secondaryMonitorWindows.Clear();
     }
 
     private void OnPointerShapeChanged(int kind, int width, int height, int hotX, int hotY, byte[]? pixels)

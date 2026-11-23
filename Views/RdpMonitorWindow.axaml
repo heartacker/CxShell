@@ -1,0 +1,54 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:CxShell.Controls"
+        x:Class="CxShell.Views.RdpMonitorWindow"
+        Title="CxShell RDP Monitor"
+        SystemDecorations="None"
+        Background="#111111"
+        ShowInTaskbar="False"
+        CanResize="False">
+    <Grid>
+        <controls:RdpSliceSurface x:Name="SliceSurface"
+                                  Focusable="True"
+                                  PointerMoved="OnSurfacePointerMoved"
+                                  PointerPressed="OnSurfacePointerPressed"
+                                  PointerReleased="OnSurfacePointerReleased"
+                                  PointerWheelChanged="OnSurfacePointerWheelChanged"/>
+
+        <!-- Top-edge hover trigger zone -->
+        <Border Height="6"
+                VerticalAlignment="Top"
+                Background="Transparent"
+                PointerEntered="OnTopHotZoneEntered"/>
+
+        <!-- Per-screen floating top toolbar -->
+        <Border x:Name="FloatingToolbar"
+                IsVisible="False"
+                VerticalAlignment="Top"
+                HorizontalAlignment="Center"
+                Margin="0,6,0,0"
+                Padding="12,6"
+                CornerRadius="8"
+                Background="#E61E1E1E"
+                BorderBrush="#40FFFFFF"
+                BorderThickness="1"
+                PointerExited="OnFloatingToolbarExited">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock x:Name="MonitorTitleText"
+                           Foreground="#F0F0F0"
+                           FontSize="12"
+                           VerticalAlignment="Center"/>
+                <Button x:Name="ToggleImmersiveModeButton"
+                        Content="保留任务栏"
+                        FontSize="11"
+                        Padding="8,3"
+                        Click="OnToggleImmersiveModeClick"/>
+                <Button x:Name="CloseMonitorButton"
+                        Content="关闭此屏"
+                        FontSize="11"
+                        Padding="8,3"
+                        Click="OnCloseMonitorClick"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
