@@ -408,6 +408,17 @@ public partial class RdpView : UserControl
             if (item.Screen.Bounds.Bottom > maxY) maxY = item.Screen.Bounds.Bottom;
         }
 
+        var hostScaleFactor = GetRenderScaling();
+        var useViewportForHost = window.WindowState != WindowState.FullScreen &&
+                                 RdpViewport.Bounds.Width >= 320 &&
+                                 RdpViewport.Bounds.Height >= 240;
+        var hostPixelW = useViewportForHost
+            ? Math.Clamp(((int)Math.Round(RdpViewport.Bounds.Width * hostScaleFactor)) & ~1, 200, 8192)
+            : Math.Clamp(hostEntry.Screen.Bounds.Width & ~1, 200, 8192);
+        var hostPixelH = useViewportForHost
+            ? Math.Clamp(((int)Math.Round(RdpViewport.Bounds.Height * hostScaleFactor)) & ~1, 200, 8192)
+            : Math.Clamp(hostEntry.Screen.Bounds.Height & ~1, 200, 8192);
+
         // Mode 1: Single local ultrawide -> Remote virtual dual monitors (left/right 50/50 split)
         if (_ultrawideMode == 1)
         {
@@ -416,9 +427,8 @@ public partial class RdpView : UserControl
             PrimarySliceSurface.IsVisible = false;
             FramebufferImage.IsVisible = true;
 
-            var b = hostEntry.Screen.Bounds;
-            var halfW = Math.Max(200, (b.Width / 2) & ~1);
-            var h = Math.Max(200, b.Height & ~1);
+            var halfW = Math.Max(200, (hostPixelW / 2) & ~1);
+            var h = Math.Max(200, hostPixelH & ~1);
             var scale = Math.Clamp((int)Math.Round(hostEntry.Screen.Scaling * 100), 100, 500);
             var splitLayouts = new System.Collections.Generic.List<RdpMonitorRect>
             {
@@ -434,8 +444,8 @@ public partial class RdpView : UserControl
         foreach (var item in selected)
         {
             var b = item.Screen.Bounds;
-            var w = Math.Clamp(b.Width & ~1, 200, 8192);
-            var h = Math.Clamp(b.Height & ~1, 200, 8192);
+            var w = item.Index == hostEntry.Index ? hostPixelW : Math.Clamp(b.Width & ~1, 200, 8192);
+            var h = item.Index == hostEntry.Index ? hostPixelH : Math.Clamp(b.Height & ~1, 200, 8192);
             sliceByIndex[item.Index] = new Rect(b.X - minX, b.Y - minY, w, h);
         }
 
@@ -452,14 +462,18 @@ public partial class RdpView : UserControl
             foreach (var item in selected)
             {
                 var b = item.Screen.Bounds;
+                var w = item.Index == hostEntry.Index ? hostPixelW : Math.Clamp(b.Width & ~1, 200, 8192);
+                var h = item.Index == hostEntry.Index ? hostPixelH : Math.Clamp(b.Height & ~1, 200, 8192);
                 var left = b.X - remotePrimaryEntry.Screen.Bounds.X;
                 var top = b.Y - remotePrimaryEntry.Screen.Bounds.Y;
                 var scale = Math.Clamp((int)Math.Round(item.Screen.Scaling * 100), 100, 500);
-                layouts.Add(new RdpMonitorRect(left, top, b.Width, b.Height, scale, item.Index == remotePrimaryEntry.Index));
+                layouts.Add(new RdpMonitorRect(left, top, w, h, scale, item.Index == remotePrimaryEntry.Index));
             }
 
             // Append any user-created virtual monitors (windowed on host screen) to the right
-            var nextRight = maxX;
+            var nextRight = hostEntry.Screen.Bounds.X + hostPixelW;
+            if (selected.Count > 1 && maxX > nextRight)
+                nextRight = maxX;
             var hostBounds = hostEntry.Screen.Bounds;
             var hostScale = Math.Clamp((int)Math.Round(hostEntry.Screen.Scaling * 100), 100, 500);
             foreach (var vId in _virtualMonitorIds)
