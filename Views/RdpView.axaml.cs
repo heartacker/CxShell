@@ -29,6 +29,8 @@ public partial class RdpView : UserControl
     private string? _lastSyncedClipboardFilesKey;
     private WindowsClipboardListener? _clipboardListener;
     private WindowsRdpShortcutHook? _systemShortcutHook;
+    private Cursor? _customRemoteCursor;
+    private Avalonia.Media.Imaging.WriteableBitmap? _customRemoteCursorBitmap;
     private double _pendingWheelY;
 
     public RdpView()
@@ -81,6 +83,7 @@ public partial class RdpView : UserControl
         vm.RemoteClipboardImageReceived += OnRemoteClipboardImageReceived;
         vm.RemoteClipboardFilesReceived += OnRemoteClipboardFilesReceived;
         vm.FramebufferInvalidated += OnFramebufferInvalidated;
+        vm.PointerShapeChanged += OnPointerShapeChanged;
         ApplyScaleMode(vm);
         UpdateSystemShortcutHook();
         if (_isAttached)
@@ -116,13 +119,66 @@ public partial class RdpView : UserControl
         _boundVm.RemoteClipboardImageReceived -= OnRemoteClipboardImageReceived;
         _boundVm.RemoteClipboardFilesReceived -= OnRemoteClipboardFilesReceived;
         _boundVm.FramebufferInvalidated -= OnFramebufferInvalidated;
+        _boundVm.PointerShapeChanged -= OnPointerShapeChanged;
         _boundVm = null;
+        DisposeCustomRemoteCursor();
         DisposeSystemShortcutHook();
     }
 
     private void OnFramebufferInvalidated()
     {
         FramebufferImage.InvalidateVisual();
+    }
+
+    private void OnPointerShapeChanged(int kind, int width, int height, int hotX, int hotY, byte[]? pixels)
+    {
+        if (kind == 1)
+        {
+            DisposeCustomRemoteCursor();
+            FramebufferImage.Cursor = new Cursor(StandardCursorType.None);
+            return;
+        }
+
+        if (kind == 2 && pixels != null && width > 0 && height > 0)
+        {
+            try
+            {
+                var bitmap = new Avalonia.Media.Imaging.WriteableBitmap(
+                    new PixelSize(width, height),
+                    new Vector(96, 96),
+                    Avalonia.Platform.PixelFormat.Bgra8888,
+                    Avalonia.Platform.AlphaFormat.Unpremul);
+                using (var fb = bitmap.Lock())
+                {
+                    var copyBytes = Math.Min(pixels.Length, fb.RowBytes * fb.Size.Height);
+                    System.Runtime.InteropServices.Marshal.Copy(pixels, 0, fb.Address, copyBytes);
+                }
+
+                var clampedHotX = Math.Clamp(hotX, 0, width - 1);
+                var clampedHotY = Math.Clamp(hotY, 0, height - 1);
+                var cursor = new Cursor(bitmap, new PixelPoint(clampedHotX, clampedHotY));
+                FramebufferImage.Cursor = cursor;
+                DisposeCustomRemoteCursor();
+                _customRemoteCursor = cursor;
+                _customRemoteCursorBitmap = bitmap;
+                return;
+            }
+            catch
+            {
+                // Fall back to default arrow cursor if platform cursor creation fails.
+            }
+        }
+
+        DisposeCustomRemoteCursor();
+        FramebufferImage.Cursor = new Cursor(StandardCursorType.Arrow);
+    }
+
+    private void DisposeCustomRemoteCursor()
+    {
+        _customRemoteCursor?.Dispose();
+        _customRemoteCursor = null;
+        _customRemoteCursorBitmap?.Dispose();
+        _customRemoteCursorBitmap = null;
     }
 
     private void StartClipboardListener()

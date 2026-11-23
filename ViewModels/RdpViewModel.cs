@@ -51,6 +51,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         _client.ClipboardTextReceived += OnClipboardTextReceived;
         _client.ClipboardImageReceived += OnClipboardImageReceived;
         _client.ClipboardFilesReceived += OnClipboardFilesReceived;
+        _client.PointerShapeChanged += OnPointerShapeChanged;
         _client.SecurityModeConnected += mode => Dispatcher.UIThread.Post(() => SecurityModeConnected?.Invoke(mode));
         _client.Disconnected += () => Dispatcher.UIThread.Post(() =>
         {
@@ -346,6 +347,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
 
     public event Action<uint, byte[]>? RemoteClipboardImageReceived;
     public event Action<string[]>? RemoteClipboardFilesReceived;
+    public event Action<int, int, int, int, int, byte[]?>? PointerShapeChanged;
     public event Action? FramebufferInvalidated;
 
     private readonly object _frameStagingLock = new();
@@ -496,6 +498,11 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         Dispatcher.UIThread.Post(() => RemoteClipboardFilesReceived?.Invoke(paths));
     }
 
+    private void OnPointerShapeChanged(int kind, int width, int height, int hotX, int hotY, byte[]? pixels)
+    {
+        Dispatcher.UIThread.Post(() => PointerShapeChanged?.Invoke(kind, width, height, hotX, hotY, pixels));
+    }
+
     public void Dispose()
     {
         _resizeReconnectCts?.Cancel();
@@ -504,6 +511,7 @@ public partial class RdpViewModel : ObservableObject, IDisposable
         _client.ClipboardTextReceived -= OnClipboardTextReceived;
         _client.ClipboardImageReceived -= OnClipboardImageReceived;
         _client.ClipboardFilesReceived -= OnClipboardFilesReceived;
+        _client.PointerShapeChanged -= OnPointerShapeChanged;
         _client.Dispose();
     }
 }

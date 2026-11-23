@@ -22,8 +22,16 @@ typedef void (*cxrdp_disconnect_callback)(void* user_data);
 typedef void (*cxrdp_clipboard_text_callback)(void* user_data, const char* text);
 typedef void (*cxrdp_clipboard_image_callback)(void* user_data, uint32_t image_format, const uint8_t* data, uint32_t length);
 typedef void (*cxrdp_clipboard_files_callback)(void* user_data, const char* file_paths_newline_separated);
+typedef void (*cxrdp_pointer_callback)(
+    void* user_data,
+    int kind,
+    int width,
+    int height,
+    int hot_x,
+    int hot_y,
+    const uint8_t* bgra_pixels);
 
-#define CX_RDP_BRIDGE_API_VERSION 9u
+#define CX_RDP_BRIDGE_API_VERSION 10u
 #define CX_RDP_CAPABILITY_CLIPBOARD 0x00000001u
 #define CX_RDP_CAPABILITY_DRIVE_REDIRECTION 0x00000002u
 #define CX_RDP_CAPABILITY_AUDIO_PLAYBACK 0x00000004u
@@ -34,6 +42,11 @@ typedef void (*cxrdp_clipboard_files_callback)(void* user_data, const char* file
 #define CX_RDP_CAPABILITY_CLIPBOARD_IMAGE 0x00000080u
 #define CX_RDP_CAPABILITY_CLIPBOARD_FILES 0x00000100u
 #define CX_RDP_CAPABILITY_DYNAMIC_DISPLAY 0x00000200u
+#define CX_RDP_CAPABILITY_POINTER_SHAPE 0x00000400u
+
+#define CX_RDP_POINTER_DEFAULT 0
+#define CX_RDP_POINTER_NULL 1
+#define CX_RDP_POINTER_CUSTOM 2
 
 #define CX_RDP_CLIPBOARD_IMAGE_PNG 1u
 #define CX_RDP_CLIPBOARD_IMAGE_DIB 2u
@@ -69,6 +82,7 @@ CX_RDP_API void cxrdp_send_unicode_key(void* handle, uint16_t code, int down);
 CX_RDP_API void cxrdp_set_clipboard_callback(void* handle, cxrdp_clipboard_text_callback clipboard_text_callback);
 CX_RDP_API void cxrdp_set_clipboard_image_callback(void* handle, cxrdp_clipboard_image_callback clipboard_image_callback);
 CX_RDP_API void cxrdp_set_clipboard_files_callback(void* handle, cxrdp_clipboard_files_callback clipboard_files_callback);
+CX_RDP_API void cxrdp_set_pointer_callback(void* handle, cxrdp_pointer_callback pointer_callback);
 CX_RDP_API void cxrdp_set_clipboard_text(void* handle, const char* text);
 CX_RDP_API void cxrdp_set_clipboard_image(
     void* handle,

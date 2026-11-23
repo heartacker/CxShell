@@ -40,6 +40,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint ClipboardImageCapability = 0x00000080;
     private const uint ClipboardFilesCapability = 0x00000100;
     private const uint DynamicDisplayCapability = 0x00000200;
+    private const uint PointerShapeCapability = 0x00000400;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
@@ -47,6 +48,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint ClipboardImageApiVersion = 7;
     private const uint ClipboardFilesApiVersion = 8;
     private const uint DynamicDisplayApiVersion = 9;
+    private const uint PointerShapeApiVersion = 10;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -57,6 +59,7 @@ public sealed class RdpBridgeClient : IDisposable
     private readonly ClipboardTextCallback _clipboardTextCallback;
     private readonly ClipboardImageCallback _clipboardImageCallback;
     private readonly ClipboardFilesCallback _clipboardFilesCallback;
+    private readonly PointerCallback _pointerCallback;
     private bool _supportsClipboardImage;
     private bool _supportsClipboardFiles;
     private bool _supportsDynamicDisplay;
@@ -78,6 +81,7 @@ public sealed class RdpBridgeClient : IDisposable
     public event Action<string>? ClipboardTextReceived;
     public event Action<uint, byte[]>? ClipboardImageReceived;
     public event Action<string[]>? ClipboardFilesReceived;
+    public event Action<int, int, int, int, int, byte[]?>? PointerShapeChanged;
     public event Action<string>? SecurityModeConnected;
 
     public static string DebugLogPath => Path.Combine(GetDebugLogDirectory(), "rdp-debug.log");
@@ -99,6 +103,7 @@ public sealed class RdpBridgeClient : IDisposable
         _clipboardTextCallback = OnClipboardText;
         _clipboardImageCallback = OnClipboardImage;
         _clipboardFilesCallback = OnClipboardFiles;
+        _pointerCallback = OnPointer;
     }
 
     public void Connect(SessionInfo session, string? password, int? desktopWidth = null, int? desktopHeight = null, int desktopScaleFactor = 100)
@@ -171,6 +176,11 @@ public sealed class RdpBridgeClient : IDisposable
             NativeMethods.cxrdp_set_clipboard_files_callback(_handle, _clipboardFilesCallback);
         _supportsDynamicDisplay = nativeApiVersion >= DynamicDisplayApiVersion &&
                                   (nativeCapabilities & DynamicDisplayCapability) != 0;
+        if (nativeApiVersion >= PointerShapeApiVersion &&
+            (nativeCapabilities & PointerShapeCapability) != 0)
+        {
+            NativeMethods.cxrdp_set_pointer_callback(_handle, _pointerCallback);
+        }
         DebugLog($"native bridge apiVersion={nativeApiVersion} capabilities=0x{nativeCapabilities:X8}");
         if (session.RdpRedirectDrives)
         {
@@ -825,6 +835,19 @@ public sealed class RdpBridgeClient : IDisposable
         ClipboardFilesReceived?.Invoke(paths);
     }
 
+    private void OnPointer(IntPtr userData, int kind, int width, int height, int hotX, int hotY, IntPtr bgraPixels)
+    {
+        byte[]? pixels = null;
+        if (kind == 2 && width > 0 && height > 0 && bgraPixels != IntPtr.Zero)
+        {
+            var byteCount = checked(width * height * 4);
+            pixels = new byte[byteCount];
+            Marshal.Copy(bgraPixels, pixels, 0, byteCount);
+        }
+
+        PointerShapeChanged?.Invoke(kind, width, height, hotX, hotY, pixels);
+    }
+
     private static string GetDebugLogDirectory()
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -947,6 +970,16 @@ public sealed class RdpBridgeClient : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void ClipboardFilesCallback(IntPtr userData, IntPtr paths);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void PointerCallback(
+        IntPtr userData,
+        int kind,
+        int width,
+        int height,
+        int hotX,
+        int hotY,
+        IntPtr bgraPixels);
+
     private static class NativeMethods
     {
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
@@ -983,6 +1016,11 @@ public sealed class RdpBridgeClient : IDisposable
         public static extern void cxrdp_set_clipboard_files_callback(
             IntPtr handle,
             ClipboardFilesCallback clipboardFilesCallback);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_set_pointer_callback(
+            IntPtr handle,
+            PointerCallback pointerCallback);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int cxrdp_connect(
