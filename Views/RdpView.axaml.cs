@@ -36,6 +36,8 @@ public partial class RdpView : UserControl
     private readonly System.Collections.Generic.HashSet<int> _selectedMonitorIndices = new();
     private readonly System.Collections.Generic.Dictionary<int, RdpMonitorWindow> _secondaryMonitorWindows = new();
     private Rect? _primarySliceRect;
+    private ushort _lastRemotePointerX;
+    private ushort _lastRemotePointerY;
     private double _pendingWheelY;
 
     public RdpView()
@@ -759,6 +761,42 @@ public partial class RdpView : UserControl
         ReleaseTrackedModifiers();
     }
 
+    internal bool TryMapGlobalScreenPoint(PixelPoint screenPoint, out ushort remoteX, out ushort remoteY)
+    {
+        remoteX = 0;
+        remoteY = 0;
+
+        if (PrimarySliceSurface.IsVisible && _primarySliceRect is { Width: > 0, Height: > 0 } slice)
+        {
+            var bounds = PrimarySliceSurface.Bounds;
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                var topLeft = PrimarySliceSurface.PointToScreen(new Point(0, 0));
+                var bottomRight = PrimarySliceSurface.PointToScreen(new Point(bounds.Width, bounds.Height));
+                var sw = bottomRight.X - topLeft.X;
+                var sh = bottomRight.Y - topLeft.Y;
+                if (sw > 0 && sh > 0 &&
+                    screenPoint.X >= topLeft.X && screenPoint.X <= bottomRight.X &&
+                    screenPoint.Y >= topLeft.Y && screenPoint.Y <= bottomRight.Y)
+                {
+                    var relX = Math.Clamp((double)(screenPoint.X - topLeft.X) / sw, 0, 1);
+                    var relY = Math.Clamp((double)(screenPoint.Y - topLeft.Y) / sh, 0, 1);
+                    remoteX = (ushort)Math.Clamp((int)Math.Round(slice.X + relX * slice.Width), 0, ushort.MaxValue);
+                    remoteY = (ushort)Math.Clamp((int)Math.Round(slice.Y + relY * slice.Height), 0, ushort.MaxValue);
+                    return true;
+                }
+            }
+        }
+
+        foreach (var win in _secondaryMonitorWindows.Values)
+        {
+            if (win.TryMapScreenPoint(screenPoint, out remoteX, out remoteY))
+                return true;
+        }
+
+        return false;
+    }
+
     private void SendPointer(PointerEventArgs e, ushort flags)
     {
         if (DataContext is not RdpViewModel vm || FramebufferImage == null)
@@ -771,12 +809,31 @@ public partial class RdpView : UserControl
                 return;
 
             var pos = e.GetPosition(PrimarySliceSurface);
+            if (pos.X < 0 || pos.X > bounds.Width || pos.Y < 0 || pos.Y > bounds.Height)
+            {
+                var screenPt = PrimarySliceSurface.PointToScreen(pos);
+                if (TryMapGlobalScreenPoint(screenPt, out var gx, out var gy))
+                {
+                    _lastRemotePointerX = gx;
+                    _lastRemotePointerY = gy;
+                    vm.SendPointer(flags, gx, gy);
+                }
+                else if (flags != 0x0800)
+                {
+                    // In gap between windows: pause move updates, but still deliver button release cleanly.
+                    vm.SendPointer(flags, _lastRemotePointerX, _lastRemotePointerY);
+                }
+                return;
+            }
+
             var relX = Math.Clamp(pos.X / bounds.Width, 0, 1);
             var relY = Math.Clamp(pos.Y / bounds.Height, 0, 1);
             var vx = slice.X + relX * slice.Width;
             var vy = slice.Y + relY * slice.Height;
             var rx = (ushort)Math.Clamp((int)Math.Round(vx), 0, ushort.MaxValue);
             var ry = (ushort)Math.Clamp((int)Math.Round(vy), 0, ushort.MaxValue);
+            _lastRemotePointerX = rx;
+            _lastRemotePointerY = ry;
             vm.SendPointer(flags, rx, ry);
             return;
         }
@@ -787,6 +844,8 @@ public partial class RdpView : UserControl
             vm.RemoteWidth,
             vm.RemoteHeight,
             vm.IsFitToWindow);
+        _lastRemotePointerX = (ushort)x;
+        _lastRemotePointerY = (ushort)y;
         vm.SendPointer(flags, (ushort)x, (ushort)y);
     }
 

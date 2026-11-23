@@ -19,6 +19,8 @@ public partial class RdpMonitorWindow : Window
     private bool _keepTaskbar;
     private ushort _buttonFlags;
     private double _pendingWheelY;
+    private ushort _lastRemoteX;
+    private ushort _lastRemoteY;
 
     public RdpMonitorWindow(
         RdpView ownerView,
@@ -129,7 +131,33 @@ public partial class RdpMonitorWindow : Window
         _onCloseRequested(_monitorIndex);
     }
 
-    private bool TryMapPointer(PointerEventArgs e, out ushort remoteX, out ushort remoteY)
+    public bool TryMapScreenPoint(PixelPoint screenPoint, out ushort remoteX, out ushort remoteY)
+    {
+        remoteX = 0;
+        remoteY = 0;
+        var bounds = SliceSurface.Bounds;
+        if (bounds.Width <= 0 || bounds.Height <= 0 || _virtualSliceRect.Width <= 0 || _virtualSliceRect.Height <= 0)
+            return false;
+
+        var topLeft = SliceSurface.PointToScreen(new Point(0, 0));
+        var bottomRight = SliceSurface.PointToScreen(new Point(bounds.Width, bounds.Height));
+        var sw = bottomRight.X - topLeft.X;
+        var sh = bottomRight.Y - topLeft.Y;
+        if (sw <= 0 || sh <= 0 ||
+            screenPoint.X < topLeft.X || screenPoint.X > bottomRight.X ||
+            screenPoint.Y < topLeft.Y || screenPoint.Y > bottomRight.Y)
+        {
+            return false;
+        }
+
+        var relX = Math.Clamp((double)(screenPoint.X - topLeft.X) / sw, 0, 1);
+        var relY = Math.Clamp((double)(screenPoint.Y - topLeft.Y) / sh, 0, 1);
+        remoteX = (ushort)Math.Clamp((int)Math.Round(_virtualSliceRect.X + relX * _virtualSliceRect.Width), 0, ushort.MaxValue);
+        remoteY = (ushort)Math.Clamp((int)Math.Round(_virtualSliceRect.Y + relY * _virtualSliceRect.Height), 0, ushort.MaxValue);
+        return true;
+    }
+
+    private bool TryMapPointer(PointerEventArgs e, out ushort remoteX, out ushort remoteY, bool allowFallbackOnGap = false)
     {
         remoteX = 0;
         remoteY = 0;
@@ -138,12 +166,34 @@ public partial class RdpMonitorWindow : Window
             return false;
 
         var pos = e.GetPosition(SliceSurface);
+        if (pos.X < 0 || pos.X > bounds.Width || pos.Y < 0 || pos.Y > bounds.Height)
+        {
+            var screenPt = SliceSurface.PointToScreen(pos);
+            if (_ownerView.TryMapGlobalScreenPoint(screenPt, out remoteX, out remoteY))
+            {
+                _lastRemoteX = remoteX;
+                _lastRemoteY = remoteY;
+                return true;
+            }
+
+            if (allowFallbackOnGap)
+            {
+                remoteX = _lastRemoteX;
+                remoteY = _lastRemoteY;
+                return true;
+            }
+
+            return false;
+        }
+
         var relX = Math.Clamp(pos.X / bounds.Width, 0, 1);
         var relY = Math.Clamp(pos.Y / bounds.Height, 0, 1);
         var vx = _virtualSliceRect.X + relX * _virtualSliceRect.Width;
         var vy = _virtualSliceRect.Y + relY * _virtualSliceRect.Height;
         remoteX = (ushort)Math.Clamp((int)Math.Round(vx), 0, ushort.MaxValue);
         remoteY = (ushort)Math.Clamp((int)Math.Round(vy), 0, ushort.MaxValue);
+        _lastRemoteX = remoteX;
+        _lastRemoteY = remoteY;
         return true;
     }
 
@@ -172,7 +222,7 @@ public partial class RdpMonitorWindow : Window
 
     private void OnSurfacePointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (!TryMapPointer(e, out var x, out var y))
+        if (!TryMapPointer(e, out var x, out var y, allowFallbackOnGap: true))
             return;
 
         ushort flag = e.InitialPressMouseButton switch
