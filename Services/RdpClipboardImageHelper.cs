@@ -19,6 +19,56 @@ public static class RdpClipboardImageHelper
     private const uint CfHDrop = 15;
     private const uint GmemMoveable = 0x0002;
     private static uint _cfPng;
+    private static uint _cfHtml;
+    private static uint _cfRtf;
+
+    public static async Task<(byte[]? HtmlBytes, byte[]? RtfBytes)> TryReadLocalRichTextAsync(IClipboard? clipboard)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            if (OpenClipboard(IntPtr.Zero))
+            {
+                try
+                {
+                    if (_cfHtml == 0)
+                        _cfHtml = RegisterClipboardFormatW("HTML Format");
+                    if (_cfRtf == 0)
+                        _cfRtf = RegisterClipboardFormatW("Rich Text Format");
+
+                    var html = _cfHtml != 0 ? ReadWindowsClipboardBytes(_cfHtml) : null;
+                    var rtf = _cfRtf != 0 ? ReadWindowsClipboardBytes(_cfRtf) : null;
+                    if (html != null || rtf != null)
+                        return (html, rtf);
+                }
+                catch
+                {
+                    // Ignore platform read errors.
+                }
+                finally
+                {
+                    CloseClipboard();
+                }
+            }
+        }
+
+        if (clipboard == null)
+            return (null, null);
+
+        try
+        {
+            var transfer = await clipboard.TryGetDataAsync();
+            if (transfer == null)
+                return (null, null);
+
+            var html = await TryExtractBytesFromDataTransferAsync(transfer, "text/html");
+            var rtf = await TryExtractBytesFromDataTransferAsync(transfer, "text/rtf");
+            return (html, rtf);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
 
     public static async Task<string[]?> TryReadLocalFilesAsync(IClipboard? clipboard)
     {

@@ -81,6 +81,8 @@ struct RemoteClipboardFileEntry
 
 constexpr uint32_t CX_CLIPRDR_FORMAT_PNG = 0xC001u;
 constexpr uint32_t CX_CLIPRDR_FORMAT_FILE_GROUP_DESCRIPTOR_W = 0xC002u;
+constexpr uint32_t CX_CLIPRDR_FORMAT_HTML = 0xC003u;
+constexpr uint32_t CX_CLIPRDR_FORMAT_RTF = 0xC004u;
 constexpr uint32_t CX_CLIPRDR_FILE_CHUNK_SIZE = 65536u;
 
 struct CxRdpSession
@@ -138,6 +140,8 @@ struct CxRdpSession
     std::mutex clipboard_mutex;
     int local_clipboard_kind = 0; // 0=text, 1=image, 2=files
     std::string local_clipboard_text;
+    std::vector<uint8_t> local_clipboard_html;
+    std::vector<uint8_t> local_clipboard_rtf;
     std::vector<uint8_t> local_clipboard_png;
     std::vector<uint8_t> local_clipboard_dib;
     std::vector<LocalClipboardFileEntry> local_clipboard_files;
@@ -1018,6 +1022,8 @@ UINT send_client_format_list(CliprdrClientContext* cliprdr)
     bool hasPng = false;
     bool hasDib = false;
     bool hasFiles = false;
+    bool hasHtml = false;
+    bool hasRtf = false;
     if (session)
     {
         std::lock_guard<std::mutex> lock(session->clipboard_mutex);
@@ -1025,11 +1031,15 @@ UINT send_client_format_list(CliprdrClientContext* cliprdr)
         hasPng = !session->local_clipboard_png.empty();
         hasDib = !session->local_clipboard_dib.empty();
         hasFiles = !session->local_clipboard_files.empty();
+        hasHtml = !session->local_clipboard_html.empty();
+        hasRtf = !session->local_clipboard_rtf.empty();
     }
 
     std::vector<CLIPRDR_FORMAT> formats;
     static char pngFormatName[] = "PNG";
     static char fileGroupDescriptorName[] = "FileGroupDescriptorW";
+    static char htmlFormatName[] = "HTML Format";
+    static char rtfFormatName[] = "Rich Text Format";
     const char* kindLabel = "text";
 
     if (kind == 2 && hasFiles)
@@ -1070,6 +1080,22 @@ UINT send_client_format_list(CliprdrClientContext* cliprdr)
         CLIPRDR_FORMAT oemFormat{};
         oemFormat.formatId = CF_OEMTEXT;
         formats.push_back(oemFormat);
+
+        if (hasHtml)
+        {
+            CLIPRDR_FORMAT htmlFormat{};
+            htmlFormat.formatId = CX_CLIPRDR_FORMAT_HTML;
+            htmlFormat.formatName = htmlFormatName;
+            formats.push_back(htmlFormat);
+        }
+
+        if (hasRtf)
+        {
+            CLIPRDR_FORMAT rtfFormat{};
+            rtfFormat.formatId = CX_CLIPRDR_FORMAT_RTF;
+            rtfFormat.formatName = rtfFormatName;
+            formats.push_back(rtfFormat);
+        }
     }
 
     CLIPRDR_FORMAT_LIST formatList{};
@@ -1830,6 +1856,36 @@ UINT cx_cliprdr_server_format_data_request(
             std::ostringstream message;
             message << "RDP clipboard remote requested local image. format=PNG bytes=" << data.size();
             notify_status(session, message.str().c_str());
+        }
+    }
+    else if (session && formatDataRequest->requestedFormatId == CX_CLIPRDR_FORMAT_HTML)
+    {
+        {
+            std::lock_guard<std::mutex> lock(session->clipboard_mutex);
+            if (session->local_clipboard_kind == 0 && !session->local_clipboard_html.empty())
+                data.assign(session->local_clipboard_html.begin(), session->local_clipboard_html.end());
+        }
+
+        if (!data.empty())
+        {
+            response.common.msgFlags = CB_RESPONSE_OK;
+            response.common.dataLen = static_cast<UINT32>(data.size());
+            response.requestedFormatData = data.data();
+        }
+    }
+    else if (session && formatDataRequest->requestedFormatId == CX_CLIPRDR_FORMAT_RTF)
+    {
+        {
+            std::lock_guard<std::mutex> lock(session->clipboard_mutex);
+            if (session->local_clipboard_kind == 0 && !session->local_clipboard_rtf.empty())
+                data.assign(session->local_clipboard_rtf.begin(), session->local_clipboard_rtf.end());
+        }
+
+        if (!data.empty())
+        {
+            response.common.msgFlags = CB_RESPONSE_OK;
+            response.common.dataLen = static_cast<UINT32>(data.size());
+            response.requestedFormatData = data.data();
         }
     }
     else if (session && is_supported_text_format(formatDataRequest->requestedFormatId))
@@ -2902,7 +2958,8 @@ CX_RDP_API uint32_t cxrdp_get_capabilities(void)
            CX_RDP_CAPABILITY_CLIPBOARD_FILES |
            CX_RDP_CAPABILITY_DYNAMIC_DISPLAY |
            CX_RDP_CAPABILITY_POINTER_SHAPE |
-           CX_RDP_CAPABILITY_DIRTY_RECT;
+           CX_RDP_CAPABILITY_DIRTY_RECT |
+           CX_RDP_CAPABILITY_CLIPBOARD_RICH_TEXT;
 }
 
 CX_RDP_API void* cxrdp_create(void)
@@ -3115,6 +3172,39 @@ CX_RDP_API void cxrdp_set_clipboard_text(void* handle, const char* text)
         std::lock_guard<std::mutex> lock(session->clipboard_mutex);
         session->local_clipboard_kind = 0;
         session->local_clipboard_text = text ? text : "";
+        session->local_clipboard_html.clear();
+        session->local_clipboard_rtf.clear();
+        session->local_clipboard_png.clear();
+        session->local_clipboard_dib.clear();
+        session->local_clipboard_files.clear();
+        ++session->local_clipboard_revision;
+    }
+}
+
+CX_RDP_API void cxrdp_set_clipboard_rich_text(
+    void* handle,
+    const char* plain_text,
+    const uint8_t* html_data,
+    uint32_t html_length,
+    const uint8_t* rtf_data,
+    uint32_t rtf_length)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session)
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(session->clipboard_mutex);
+        session->local_clipboard_kind = 0;
+        session->local_clipboard_text = plain_text ? plain_text : "";
+        if (html_data && html_length > 0)
+            session->local_clipboard_html.assign(html_data, html_data + html_length);
+        else
+            session->local_clipboard_html.clear();
+        if (rtf_data && rtf_length > 0)
+            session->local_clipboard_rtf.assign(rtf_data, rtf_data + rtf_length);
+        else
+            session->local_clipboard_rtf.clear();
         session->local_clipboard_png.clear();
         session->local_clipboard_dib.clear();
         session->local_clipboard_files.clear();

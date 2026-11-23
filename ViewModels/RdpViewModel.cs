@@ -369,6 +369,12 @@ public partial class RdpViewModel : ObservableObject, IDisposable
             _client.SetClipboardText(text);
     }
 
+    public void SetClipboardRichText(string plainText, byte[]? htmlData, byte[]? rtfData)
+    {
+        if (IsConnected)
+            _client.SetClipboardRichText(plainText, htmlData, rtfData);
+    }
+
     public void SetClipboardImage(byte[]? pngData, byte[]? dibData)
     {
         if (IsConnected)

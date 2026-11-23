@@ -533,7 +533,8 @@ public partial class RdpView : UserControl
             var alreadySynced = string.Equals(text, _lastSyncedClipboardText, StringComparison.Ordinal);
             if (!alreadySynced)
             {
-                vm.SetClipboardText(text);
+                var (html, rtf) = await RdpClipboardImageHelper.TryReadLocalRichTextAsync(clipboard);
+                vm.SetClipboardRichText(text, html, rtf);
                 _lastSyncedClipboardText = text;
                 _lastSyncedClipboardImageHash = null;
                 _lastSyncedClipboardFilesKey = null;
@@ -645,7 +646,8 @@ public partial class RdpView : UserControl
             if (string.Equals(text, _lastSyncedClipboardText, StringComparison.Ordinal))
                 return;
 
-            vm.SetClipboardText(text);
+            var (html, rtf) = await RdpClipboardImageHelper.TryReadLocalRichTextAsync(clipboard);
+            vm.SetClipboardRichText(text, html, rtf);
             _lastSyncedClipboardText = text;
             _lastSyncedClipboardImageHash = null;
             _lastSyncedClipboardFilesKey = null;

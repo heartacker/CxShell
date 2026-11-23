@@ -41,7 +41,7 @@ typedef void (*cxrdp_pointer_callback)(
     int hot_y,
     const uint8_t* bgra_pixels);
 
-#define CX_RDP_BRIDGE_API_VERSION 11u
+#define CX_RDP_BRIDGE_API_VERSION 12u
 #define CX_RDP_CAPABILITY_CLIPBOARD 0x00000001u
 #define CX_RDP_CAPABILITY_DRIVE_REDIRECTION 0x00000002u
 #define CX_RDP_CAPABILITY_AUDIO_PLAYBACK 0x00000004u
@@ -54,6 +54,7 @@ typedef void (*cxrdp_pointer_callback)(
 #define CX_RDP_CAPABILITY_DYNAMIC_DISPLAY 0x00000200u
 #define CX_RDP_CAPABILITY_POINTER_SHAPE 0x00000400u
 #define CX_RDP_CAPABILITY_DIRTY_RECT 0x00000800u
+#define CX_RDP_CAPABILITY_CLIPBOARD_RICH_TEXT 0x00001000u
 
 #define CX_RDP_POINTER_DEFAULT 0
 #define CX_RDP_POINTER_NULL 1
@@ -96,6 +97,13 @@ CX_RDP_API void cxrdp_set_clipboard_files_callback(void* handle, cxrdp_clipboard
 CX_RDP_API void cxrdp_set_pointer_callback(void* handle, cxrdp_pointer_callback pointer_callback);
 CX_RDP_API void cxrdp_set_frame_rect_callback(void* handle, cxrdp_frame_rect_callback frame_rect_callback);
 CX_RDP_API void cxrdp_set_clipboard_text(void* handle, const char* text);
+CX_RDP_API void cxrdp_set_clipboard_rich_text(
+    void* handle,
+    const char* plain_text,
+    const uint8_t* html_data,
+    uint32_t html_length,
+    const uint8_t* rtf_data,
+    uint32_t rtf_length);
 CX_RDP_API void cxrdp_set_clipboard_image(
     void* handle,
     const uint8_t* png_data,

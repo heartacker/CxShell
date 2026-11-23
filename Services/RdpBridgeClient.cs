@@ -42,6 +42,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint DynamicDisplayCapability = 0x00000200;
     private const uint PointerShapeCapability = 0x00000400;
     private const uint DirtyRectCapability = 0x00000800;
+    private const uint ClipboardRichTextCapability = 0x00001000;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
@@ -51,6 +52,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint DynamicDisplayApiVersion = 9;
     private const uint PointerShapeApiVersion = 10;
     private const uint DirtyRectApiVersion = 11;
+    private const uint ClipboardRichTextApiVersion = 12;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -66,6 +68,7 @@ public sealed class RdpBridgeClient : IDisposable
     private bool _supportsClipboardImage;
     private bool _supportsClipboardFiles;
     private bool _supportsDynamicDisplay;
+    private bool _supportsClipboardRichText;
     private IntPtr _handle;
     private SshClient? _sshTunnelClient;
     private ForwardedPortLocal? _sshTunnelPort;
@@ -181,6 +184,8 @@ public sealed class RdpBridgeClient : IDisposable
             NativeMethods.cxrdp_set_clipboard_files_callback(_handle, _clipboardFilesCallback);
         _supportsDynamicDisplay = nativeApiVersion >= DynamicDisplayApiVersion &&
                                   (nativeCapabilities & DynamicDisplayCapability) != 0;
+        _supportsClipboardRichText = nativeApiVersion >= ClipboardRichTextApiVersion &&
+                                     (nativeCapabilities & ClipboardRichTextCapability) != 0;
         if (nativeApiVersion >= PointerShapeApiVersion &&
             (nativeCapabilities & PointerShapeCapability) != 0)
         {
@@ -435,6 +440,27 @@ public sealed class RdpBridgeClient : IDisposable
         DebugLogDetailed($"clipboard set local length={text?.Length ?? 0}");
         if (_handle != IntPtr.Zero)
             NativeMethods.cxrdp_set_clipboard_text(_handle, text ?? string.Empty);
+    }
+
+    public void SetClipboardRichText(string plainText, byte[]? htmlData, byte[]? rtfData)
+    {
+        if (_handle == IntPtr.Zero)
+            return;
+
+        if (!_supportsClipboardRichText || ((htmlData == null || htmlData.Length == 0) && (rtfData == null || rtfData.Length == 0)))
+        {
+            SetClipboardText(plainText);
+            return;
+        }
+
+        DebugLogDetailed($"clipboard set local rich text len={plainText?.Length ?? 0} html={htmlData?.Length ?? 0} rtf={rtfData?.Length ?? 0}");
+        NativeMethods.cxrdp_set_clipboard_rich_text(
+            _handle,
+            plainText ?? string.Empty,
+            htmlData,
+            (uint)(htmlData?.Length ?? 0),
+            rtfData,
+            (uint)(rtfData?.Length ?? 0));
     }
 
     public void SetClipboardImage(byte[]? pngData, byte[]? dibData)
@@ -1091,6 +1117,15 @@ public sealed class RdpBridgeClient : IDisposable
         public static extern void cxrdp_set_clipboard_text(
             IntPtr handle,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_set_clipboard_rich_text(
+            IntPtr handle,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string plainText,
+            byte[]? htmlData,
+            uint htmlLength,
+            byte[]? rtfData,
+            uint rtfLength);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void cxrdp_set_clipboard_image(
