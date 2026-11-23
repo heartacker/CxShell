@@ -215,7 +215,27 @@ public partial class RdpViewModel : ObservableObject, IDisposable
     {
         try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(900), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(180), cancellationToken).ConfigureAwait(false);
+            var resizedDynamically = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (cancellationToken.IsCancellationRequested || !IsConnected)
+                    return true;
+
+                if (_client.TryResizeDisplay(width, height, scaleFactor))
+                {
+                    _runtimeDesktopWidth = width;
+                    _runtimeDesktopHeight = height;
+                    _runtimeDesktopScaleFactor = scaleFactor;
+                    return true;
+                }
+
+                return false;
+            });
+
+            if (resizedDynamically)
+                return;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(720), cancellationToken).ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (cancellationToken.IsCancellationRequested || !IsConnected)

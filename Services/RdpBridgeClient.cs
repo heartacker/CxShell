@@ -39,12 +39,14 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint SecurityModeCapability = 0x00000040;
     private const uint ClipboardImageCapability = 0x00000080;
     private const uint ClipboardFilesCapability = 0x00000100;
+    private const uint DynamicDisplayCapability = 0x00000200;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
     private const uint SecurityModeApiVersion = 6;
     private const uint ClipboardImageApiVersion = 7;
     private const uint ClipboardFilesApiVersion = 8;
+    private const uint DynamicDisplayApiVersion = 9;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -57,6 +59,7 @@ public sealed class RdpBridgeClient : IDisposable
     private readonly ClipboardFilesCallback _clipboardFilesCallback;
     private bool _supportsClipboardImage;
     private bool _supportsClipboardFiles;
+    private bool _supportsDynamicDisplay;
     private IntPtr _handle;
     private SshClient? _sshTunnelClient;
     private ForwardedPortLocal? _sshTunnelPort;
@@ -166,6 +169,8 @@ public sealed class RdpBridgeClient : IDisposable
                                   (nativeCapabilities & ClipboardFilesCapability) != 0;
         if (_supportsClipboardFiles)
             NativeMethods.cxrdp_set_clipboard_files_callback(_handle, _clipboardFilesCallback);
+        _supportsDynamicDisplay = nativeApiVersion >= DynamicDisplayApiVersion &&
+                                  (nativeCapabilities & DynamicDisplayCapability) != 0;
         DebugLog($"native bridge apiVersion={nativeApiVersion} capabilities=0x{nativeCapabilities:X8}");
         if (session.RdpRedirectDrives)
         {
@@ -424,6 +429,23 @@ public sealed class RdpBridgeClient : IDisposable
             (uint)(pngData?.Length ?? 0),
             dibData,
             (uint)(dibData?.Length ?? 0));
+    }
+
+    public bool TryResizeDisplay(int width, int height, int desktopScaleFactor = 100)
+    {
+        if (_handle == IntPtr.Zero || !_supportsDynamicDisplay)
+            return false;
+
+        var clampedDesktopScale = Math.Clamp(desktopScaleFactor, 100, 500);
+        var deviceScale = clampedDesktopScale >= 180 ? 180 : clampedDesktopScale >= 140 ? 140 : 100;
+        var rc = NativeMethods.cxrdp_resize_display(
+            _handle,
+            width,
+            height,
+            (uint)clampedDesktopScale,
+            (uint)deviceScale);
+        DebugLogDetailed($"dynamic display resize {width}x{height} scale={clampedDesktopScale}% rc={rc}");
+        return rc == 0;
     }
 
     public void SetClipboardFiles(string[] filePaths)
@@ -1024,6 +1046,14 @@ public sealed class RdpBridgeClient : IDisposable
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int cxrdp_set_display_scale(
             IntPtr handle,
+            uint desktopScaleFactor,
+            uint deviceScaleFactor);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int cxrdp_resize_display(
+            IntPtr handle,
+            int width,
+            int height,
             uint desktopScaleFactor,
             uint deviceScaleFactor);
 

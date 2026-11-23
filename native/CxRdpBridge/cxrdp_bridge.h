@@ -23,7 +23,7 @@ typedef void (*cxrdp_clipboard_text_callback)(void* user_data, const char* text)
 typedef void (*cxrdp_clipboard_image_callback)(void* user_data, uint32_t image_format, const uint8_t* data, uint32_t length);
 typedef void (*cxrdp_clipboard_files_callback)(void* user_data, const char* file_paths_newline_separated);
 
-#define CX_RDP_BRIDGE_API_VERSION 8u
+#define CX_RDP_BRIDGE_API_VERSION 9u
 #define CX_RDP_CAPABILITY_CLIPBOARD 0x00000001u
 #define CX_RDP_CAPABILITY_DRIVE_REDIRECTION 0x00000002u
 #define CX_RDP_CAPABILITY_AUDIO_PLAYBACK 0x00000004u
@@ -33,6 +33,7 @@ typedef void (*cxrdp_clipboard_files_callback)(void* user_data, const char* file
 #define CX_RDP_CAPABILITY_SECURITY_MODE 0x00000040u
 #define CX_RDP_CAPABILITY_CLIPBOARD_IMAGE 0x00000080u
 #define CX_RDP_CAPABILITY_CLIPBOARD_FILES 0x00000100u
+#define CX_RDP_CAPABILITY_DYNAMIC_DISPLAY 0x00000200u
 
 #define CX_RDP_CLIPBOARD_IMAGE_PNG 1u
 #define CX_RDP_CLIPBOARD_IMAGE_DIB 2u
@@ -90,6 +91,12 @@ CX_RDP_API int cxrdp_set_keyboard_options(
     int apply_key_combinations_remotely);
 CX_RDP_API int cxrdp_set_display_scale(
     void* handle,
+    uint32_t desktop_scale_factor,
+    uint32_t device_scale_factor);
+CX_RDP_API int cxrdp_resize_display(
+    void* handle,
+    int width,
+    int height,
     uint32_t desktop_scale_factor,
     uint32_t device_scale_factor);
 CX_RDP_API int cxrdp_set_security_mode(

@@ -37,9 +37,11 @@ extern "C" {
 #include <freerdp/client/channels.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/client/cmdline.h>
+#include <freerdp/client/disp.h>
 #include <freerdp/channels/channels.h>
 #include <freerdp/channels/audin.h>
 #include <freerdp/channels/cliprdr.h>
+#include <freerdp/channels/disp.h>
 #include <freerdp/channels/drdynvc.h>
 #include <freerdp/channels/rdpdr.h>
 #include <freerdp/channels/rdpsnd.h>
@@ -108,6 +110,8 @@ struct CxRdpSession
     std::string preferred_security_mode;
     bool allow_security_fallback = true;
     CliprdrClientContext* cliprdr = nullptr;
+    DispClientContext* disp = nullptr;
+    std::mutex disp_mutex;
     bool cliprdr_wire_active = false;
     bool cliprdr_ready = false;
     bool cliprdr_activation_pending = false;
@@ -2121,11 +2125,23 @@ void cx_channel_connected(void* context, const ChannelConnectedEventArgs* e)
     if (!context || !e || !e->name || !e->pInterface)
         return;
 
-    if (std::strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) != 0)
+    auto* rdp_context = static_cast<struct rdp_context*>(context);
+    auto* session = get_session(rdp_context);
+    if (!session)
         return;
 
-    auto* rdp_context = static_cast<struct rdp_context*>(context);
-    initialize_cliprdr(get_session(rdp_context), static_cast<CliprdrClientContext*>(e->pInterface));
+    if (std::strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0)
+    {
+        initialize_cliprdr(session, static_cast<CliprdrClientContext*>(e->pInterface));
+    }
+    else if (std::strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0)
+    {
+        {
+            std::lock_guard<std::mutex> lock(session->disp_mutex);
+            session->disp = static_cast<DispClientContext*>(e->pInterface);
+        }
+        notify_status(session, "RDP dynamic display channel connected.");
+    }
 }
 
 void cx_channel_disconnected(void* context, const ChannelDisconnectedEventArgs* e)
@@ -2133,11 +2149,34 @@ void cx_channel_disconnected(void* context, const ChannelDisconnectedEventArgs* 
     if (!context || !e || !e->name)
         return;
 
-    if (std::strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) != 0)
+    auto* rdp_context = static_cast<struct rdp_context*>(context);
+    auto* session = get_session(rdp_context);
+    if (!session)
         return;
 
-    auto* rdp_context = static_cast<struct rdp_context*>(context);
-    uninitialize_cliprdr(get_session(rdp_context), static_cast<CliprdrClientContext*>(e->pInterface));
+    if (std::strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0)
+    {
+        uninitialize_cliprdr(session, static_cast<CliprdrClientContext*>(e->pInterface));
+    }
+    else if (std::strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0)
+    {
+        std::lock_guard<std::mutex> lock(session->disp_mutex);
+        if (session->disp == static_cast<DispClientContext*>(e->pInterface))
+            session->disp = nullptr;
+    }
+}
+
+BOOL cx_desktop_resize(rdpContext* context)
+{
+    if (!context || !context->gdi || !context->settings)
+        return FALSE;
+
+    const UINT32 width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);
+    const UINT32 height = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight);
+    if (width == 0 || height == 0)
+        return TRUE;
+
+    return gdi_resize(context->gdi, width, height);
 }
 
 BOOL cx_begin_paint(rdpContext* context)
@@ -2187,6 +2226,8 @@ BOOL cx_pre_connect(freerdp* instance)
     freerdp_settings_set_uint32(instance->context->settings, FreeRDP_OsMajorType, OSMAJORTYPE_WINDOWS);
     freerdp_settings_set_uint32(instance->context->settings, FreeRDP_OsMinorType, OSMINORTYPE_WINDOWS_NT);
     freerdp_settings_set_bool(instance->context->settings, FreeRDP_RedirectClipboard, clipboardEnabled ? TRUE : FALSE);
+    freerdp_settings_set_bool(instance->context->settings, FreeRDP_SupportDynamicChannels, TRUE);
+    freerdp_settings_set_bool(instance->context->settings, FreeRDP_SupportDisplayControl, TRUE);
 
     if (clipboardEnabled)
     {
@@ -2194,10 +2235,10 @@ BOOL cx_pre_connect(freerdp* instance)
             instance->context->settings,
             FreeRDP_ClipboardFeatureMask,
             CLIPRDR_FLAG_LOCAL_TO_REMOTE | CLIPRDR_FLAG_REMOTE_TO_LOCAL);
-
-        PubSub_SubscribeChannelConnected(instance->context->pubSub, cx_channel_connected);
-        PubSub_SubscribeChannelDisconnected(instance->context->pubSub, cx_channel_disconnected);
     }
+
+    PubSub_SubscribeChannelConnected(instance->context->pubSub, cx_channel_connected);
+    PubSub_SubscribeChannelDisconnected(instance->context->pubSub, cx_channel_disconnected);
     return TRUE;
 }
 
@@ -2208,10 +2249,7 @@ BOOL cx_load_channels(freerdp* instance)
 
     auto* session = get_session(instance->context);
     const bool localAudioEnabled = session && session->audio_playback_mode == CX_RDP_AUDIO_PLAY_LOCAL;
-    if (!session || (!session->clipboard_channel_enabled &&
-                     !session->drive_redirection_enabled &&
-                     !localAudioEnabled &&
-                     !session->microphone_enabled))
+    if (!session)
         return TRUE;
 
     register_static_channel_provider();
@@ -2313,6 +2351,7 @@ BOOL cx_post_connect(freerdp* instance)
 
     instance->context->update->BeginPaint = cx_begin_paint;
     instance->context->update->EndPaint = cx_end_paint;
+    instance->context->update->DesktopResize = cx_desktop_resize;
     notify_status(session, "RDP connected.");
     return TRUE;
 }
@@ -2628,7 +2667,7 @@ CX_RDP_API uint32_t cxrdp_get_capabilities(void)
                             CX_RDP_CAPABILITY_SECURITY_MODE;
     if (has_native_audio_backend())
         capabilities |= CX_RDP_CAPABILITY_AUDIO_PLAYBACK | CX_RDP_CAPABILITY_MICROPHONE;
-    return capabilities | CX_RDP_CAPABILITY_CLIPBOARD_IMAGE | CX_RDP_CAPABILITY_CLIPBOARD_FILES;
+    return capabilities | CX_RDP_CAPABILITY_CLIPBOARD_IMAGE | CX_RDP_CAPABILITY_CLIPBOARD_FILES | CX_RDP_CAPABILITY_DYNAMIC_DISPLAY;
 }
 
 CX_RDP_API void* cxrdp_create(void)
@@ -3038,6 +3077,47 @@ CX_RDP_API int cxrdp_set_display_scale(
     session->desktop_scale_factor = desktop_scale_factor;
     session->device_scale_factor = device_scale_factor;
     return 0;
+}
+
+CX_RDP_API int cxrdp_resize_display(
+    void* handle,
+    int width,
+    int height,
+    uint32_t desktop_scale_factor,
+    uint32_t device_scale_factor)
+{
+    auto* session = static_cast<CxRdpSession*>(handle);
+    if (!session || !session->connected)
+        return -1;
+
+    DispClientContext* disp = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(session->disp_mutex);
+        disp = session->disp;
+    }
+
+    if (!disp || !disp->SendMonitorLayout)
+        return -2;
+
+    int clampedWidth = width < 200 ? 200 : (width > 8192 ? 8192 : width);
+    int clampedHeight = height < 200 ? 200 : (height > 8192 ? 8192 : height);
+    clampedWidth &= ~1;
+    clampedHeight &= ~1;
+
+    DISPLAY_CONTROL_MONITOR_LAYOUT layout{};
+    layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
+    layout.Left = 0;
+    layout.Top = 0;
+    layout.Width = static_cast<UINT32>(clampedWidth);
+    layout.Height = static_cast<UINT32>(clampedHeight);
+    layout.PhysicalWidth = static_cast<UINT32>(clampedWidth);
+    layout.PhysicalHeight = static_cast<UINT32>(clampedHeight);
+    layout.Orientation = ORIENTATION_LANDSCAPE;
+    layout.DesktopScaleFactor = desktop_scale_factor >= 100 && desktop_scale_factor <= 500 ? desktop_scale_factor : 100;
+    layout.DeviceScaleFactor = device_scale_factor == 180 ? 180 : (device_scale_factor == 140 ? 140 : 100);
+
+    const UINT rc = disp->SendMonitorLayout(disp, 1, &layout);
+    return rc == CHANNEL_RC_OK ? 0 : -3;
 }
 
 CX_RDP_API int cxrdp_set_security_mode(
