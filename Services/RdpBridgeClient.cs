@@ -44,6 +44,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint DirtyRectCapability = 0x00000800;
     private const uint ClipboardRichTextCapability = 0x00001000;
     private const uint GraphicsOptionsCapability = 0x00002000;
+    private const uint SyncLockKeysCapability = 0x00004000;
     private const uint AudioRedirectionApiVersion = 3;
     private const uint KeyboardOptionsApiVersion = 4;
     private const uint DisplayScaleApiVersion = 5;
@@ -55,6 +56,7 @@ public sealed class RdpBridgeClient : IDisposable
     private const uint DirtyRectApiVersion = 11;
     private const uint ClipboardRichTextApiVersion = 12;
     private const uint GraphicsOptionsApiVersion = 13;
+    private const uint SyncLockKeysApiVersion = 14;
     private static readonly object DebugLogLock = new();
     private static readonly object NativeLoadFailureLock = new();
     private static readonly bool DetailedDebugLogEnabled = IsEnvironmentFlagEnabled("CXSHELL_RDP_DEBUG_LOG");
@@ -71,6 +73,7 @@ public sealed class RdpBridgeClient : IDisposable
     private bool _supportsClipboardFiles;
     private bool _supportsDynamicDisplay;
     private bool _supportsClipboardRichText;
+    private bool _supportsSyncLockKeys;
     private IntPtr _handle;
     private SshClient? _sshTunnelClient;
     private ForwardedPortLocal? _sshTunnelPort;
@@ -188,6 +191,8 @@ public sealed class RdpBridgeClient : IDisposable
                                   (nativeCapabilities & DynamicDisplayCapability) != 0;
         _supportsClipboardRichText = nativeApiVersion >= ClipboardRichTextApiVersion &&
                                      (nativeCapabilities & ClipboardRichTextCapability) != 0;
+        _supportsSyncLockKeys = nativeApiVersion >= SyncLockKeysApiVersion &&
+                                (nativeCapabilities & SyncLockKeysCapability) != 0;
         if (nativeApiVersion >= PointerShapeApiVersion &&
             (nativeCapabilities & PointerShapeCapability) != 0)
         {
@@ -452,6 +457,12 @@ public sealed class RdpBridgeClient : IDisposable
     {
         if (_handle != IntPtr.Zero)
             NativeMethods.cxrdp_send_unicode_key(_handle, key, down ? 1 : 0);
+    }
+
+    public void SyncLockKeys(uint flags)
+    {
+        if (_handle != IntPtr.Zero && _supportsSyncLockKeys)
+            NativeMethods.cxrdp_sync_lock_keys(_handle, flags);
     }
 
     public void SetClipboardText(string text)
@@ -1131,6 +1142,9 @@ public sealed class RdpBridgeClient : IDisposable
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void cxrdp_send_unicode_key(IntPtr handle, ushort code, int down);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void cxrdp_sync_lock_keys(IntPtr handle, uint flags);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void cxrdp_set_clipboard_text(

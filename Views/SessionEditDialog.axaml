@@ -1694,6 +1694,9 @@
                                     <atom:CheckBox Content="启用图形加速 (RDPGFX / H.264)"
                                                    atom:ToolTip.Tip="开启 RDP8+ 图形管线与 H.264/RemoteFX 加速；若遇到旧版 xrdp 或特殊显卡驱动花屏/黑屏可关闭此项。"
                                                    IsChecked="{Binding RdpEnableGraphicsAcceleration, Mode=TwoWay}"/>
+                                    <atom:CheckBox Content="同步 CapsLock / NumLock 锁定键状态"
+                                                   atom:ToolTip.Tip="切入 RDP 窗口时自动将本地大小写与小键盘锁定状态同步到远端。"
+                                                   IsChecked="{Binding RdpSyncLockKeys, Mode=TwoWay}"/>
                                 </StackPanel>
 
                                 <atom:CheckBox Grid.Row="4"

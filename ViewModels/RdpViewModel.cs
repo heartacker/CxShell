@@ -280,6 +280,12 @@ public partial class RdpViewModel : ObservableObject, IDisposable
             _client.SendUnicodeKey(key, down);
     }
 
+    public void SyncLockKeys(uint flags)
+    {
+        if (IsConnected && Session.RdpSyncLockKeys)
+            _client.SyncLockKeys(flags);
+    }
+
     public Task SendCtrlAltDeleteAsync()
     {
         return SendKeyCombinationAsync(RdpKeyboardShortcutSequences.CtrlAltDelete);

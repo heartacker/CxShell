@@ -64,6 +64,7 @@ public partial class RdpView : UserControl
         {
             _hasKeyboardFocus = true;
             UpdateSystemShortcutHook();
+            SyncLocalLockKeysToRemote();
             _ = SyncLocalClipboardToRemoteAsync();
         };
         LostFocus += (_, _) =>
@@ -107,6 +108,8 @@ public partial class RdpView : UserControl
             ApplyScaleMode(_boundVm);
         }
 
+        if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.IsConnected) && _boundVm.IsConnected)
+            SyncLocalLockKeysToRemote();
         if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.IsClipboardChannelReady) && _boundVm.IsClipboardChannelReady)
             _ = SyncLocalClipboardToRemoteAsync();
         if (_boundVm != null && args.PropertyName == nameof(RdpViewModel.RemoteClipboardText))
@@ -294,6 +297,24 @@ public partial class RdpView : UserControl
     {
         vm.ConfigureInitialDisplay(viewportSize, GetCurrentMonitorPixelSize(), GetRenderScaling());
     }
+
+    private void SyncLocalLockKeysToRemote()
+    {
+        if (!OperatingSystem.IsWindows() || DataContext is not RdpViewModel vm || !vm.IsConnected || !vm.Session.RdpSyncLockKeys)
+            return;
+
+        uint flags = 0;
+        if ((GetKeyState(0x91) & 1) != 0) // VK_SCROLL
+            flags |= 0x01;
+        if ((GetKeyState(0x90) & 1) != 0) // VK_NUMLOCK
+            flags |= 0x02;
+        if ((GetKeyState(0x14) & 1) != 0) // VK_CAPITAL
+            flags |= 0x04;
+        vm.SyncLockKeys(flags);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
 
     private void OnTopLevelScalingChanged(object? sender, EventArgs e)
     {

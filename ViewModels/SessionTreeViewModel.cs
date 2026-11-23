@@ -248,6 +248,7 @@ public partial class SessionTreeViewModel : ObservableObject
         target.RdpColorQuality = source.RdpColorQuality;
         target.RdpApplyKeyCombinations = source.RdpApplyKeyCombinations;
         target.RdpEnableGraphicsAcceleration = source.RdpEnableGraphicsAcceleration;
+        target.RdpSyncLockKeys = source.RdpSyncLockKeys;
         target.RdpRedirectDrives = source.RdpRedirectDrives;
         target.RdpDriveName = source.RdpDriveName;
         target.RdpDrivePath = source.RdpDrivePath;
@@ -1165,6 +1166,7 @@ public partial class SessionTreeViewModel : ObservableObject
             RdpColorQuality = source.RdpColorQuality,
             RdpApplyKeyCombinations = source.RdpApplyKeyCombinations,
             RdpEnableGraphicsAcceleration = source.RdpEnableGraphicsAcceleration,
+            RdpSyncLockKeys = source.RdpSyncLockKeys,
             RdpRedirectDrives = source.RdpRedirectDrives,
             RdpDriveName = source.RdpDriveName,
             RdpDrivePath = source.RdpDrivePath,
