@@ -29,7 +29,9 @@ public partial class RdpMonitorWindow : Window
         Screen screen,
         int monitorIndex,
         Rect virtualSliceRect,
-        Action<int> onCloseRequested)
+        Action<int> onCloseRequested,
+        bool startWindowed = false,
+        string? customTitle = null)
     {
         InitializeComponent();
         _ownerView = ownerView;
@@ -38,6 +40,7 @@ public partial class RdpMonitorWindow : Window
         _monitorIndex = monitorIndex;
         _virtualSliceRect = virtualSliceRect;
         _onCloseRequested = onCloseRequested;
+        _isWindowed = startWindowed;
 
         AddHandler(KeyDownEvent, OnMonitorKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyUpEvent, OnMonitorKeyUp, RoutingStrategies.Tunnel);
@@ -47,7 +50,8 @@ public partial class RdpMonitorWindow : Window
         LostFocus += (_, _) => _ownerView.ForwardLostFocus();
 
         var scalePct = (int)Math.Round(screen.Scaling * 100);
-        MonitorTitleText.Text = $"屏幕 {monitorIndex + 1} · {screen.Bounds.Width}×{screen.Bounds.Height} · {scalePct}%";
+        MonitorTitleText.Text = customTitle ?? $"屏幕 {monitorIndex + 1} · {screen.Bounds.Width}×{screen.Bounds.Height} · {scalePct}%";
+        Title = MonitorTitleText.Text;
 
         ApplyWindowGeometry();
         UpdateSlice(_virtualSliceRect);

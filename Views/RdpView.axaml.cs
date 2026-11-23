@@ -35,6 +35,8 @@ public partial class RdpView : UserControl
     private TopLevel? _subscribedTopLevel;
     private readonly System.Collections.Generic.HashSet<int> _selectedMonitorIndices = new();
     private readonly System.Collections.Generic.Dictionary<int, RdpMonitorWindow> _secondaryMonitorWindows = new();
+    private readonly System.Collections.Generic.List<int> _virtualMonitorIds = new();
+    private int _nextVirtualMonitorId = 100;
     private int? _preferredPrimaryMonitorIndex;
     private int _ultrawideMode; // 0=standard, 1=local ultrawide -> remote dual, 2=local dual PBP -> remote single ultrawide
     private Rect? _primarySliceRect;
@@ -128,6 +130,7 @@ public partial class RdpView : UserControl
             else
             {
                 CloseAllSecondaryMonitorWindows();
+                _virtualMonitorIds.Clear();
                 _primarySliceRect = null;
                 PrimarySliceSurface.IsVisible = false;
                 FramebufferImage.IsVisible = true;
@@ -213,11 +216,56 @@ public partial class RdpView : UserControl
         ApplySelectedMonitorLayout();
     }
 
+    private void OnAddVirtualMonitorClick(object? sender, RoutedEventArgs e)
+    {
+        if (_virtualMonitorIds.Count >= 3)
+            return;
+
+        _ultrawideMode = 0;
+        _virtualMonitorIds.Add(_nextVirtualMonitorId++);
+        UpdateUltrawideModeButtonStates();
+        ApplySelectedMonitorLayout();
+        PopulateMonitorCheckboxes();
+    }
+
     private void UpdateUltrawideModeButtonStates()
     {
         ModeStandardButton.FontWeight = _ultrawideMode == 0 ? FontWeight.Bold : FontWeight.Normal;
         ModeSplitDualButton.FontWeight = _ultrawideMode == 1 ? FontWeight.Bold : FontWeight.Normal;
         ModeMergeUltrawideButton.FontWeight = _ultrawideMode == 2 ? FontWeight.Bold : FontWeight.Normal;
+
+        var canSplitDual = false;
+        var splitReason = "需在宽屏全屏/最大化状态下开启";
+        var canMergeUltrawide = false;
+        var mergeReason = "需两块高度与 DPI 缩放一致的屏幕在全屏/最大化模式下开启";
+
+        if (TopLevel.GetTopLevel(this) is Window window)
+        {
+            var isFullOrMax = window.WindowState is WindowState.FullScreen or WindowState.Maximized;
+            var currentScreen = window.Screens.ScreenFromWindow(window) ?? window.Screens.Primary;
+            if (isFullOrMax && currentScreen != null)
+            {
+                var aspect = currentScreen.Bounds.Height > 0
+                    ? (double)currentScreen.Bounds.Width / currentScreen.Bounds.Height
+                    : 0;
+                canSplitDual = currentScreen.Bounds.Width >= 2560 || aspect >= 1.8;
+            }
+
+            var screens = window.Screens.All;
+            if (isFullOrMax && screens.Count >= 2 && _virtualMonitorIds.Count == 0)
+            {
+                var s0 = screens[0];
+                var s1 = screens[1];
+                canMergeUltrawide = s0.Bounds.Height == s1.Bounds.Height &&
+                                    Math.Abs(s0.Scaling - s1.Scaling) < 0.01;
+            }
+        }
+
+        ModeSplitDualButton.IsEnabled = canSplitDual || _ultrawideMode == 1;
+        ToolTip.SetTip(ModeSplitDualButton, canSplitDual ? "将当前带鱼屏拆分为远端左右双屏" : splitReason);
+
+        ModeMergeUltrawideButton.IsEnabled = canMergeUltrawide || _ultrawideMode == 2;
+        ToolTip.SetTip(ModeMergeUltrawideButton, canMergeUltrawide ? "将两块等高等缩放物理屏合并为远端单块带鱼屏" : mergeReason);
     }
 
     private void PopulateMonitorCheckboxes()
@@ -390,7 +438,7 @@ public partial class RdpView : UserControl
         }
 
         // Mode 2: Local dual PBP screens -> Remote single merged ultrawide monitor
-        if (_ultrawideMode == 2 && selected.Count >= 2)
+        if (_ultrawideMode == 2 && selected.Count >= 2 && _virtualMonitorIds.Count == 0)
         {
             var totalW = Math.Clamp((maxX - minX) & ~1, 200, 8192);
             var totalH = Math.Clamp((maxY - minY) & ~1, 200, 8192);
@@ -407,11 +455,26 @@ public partial class RdpView : UserControl
                 var scale = Math.Clamp((int)Math.Round(item.Screen.Scaling * 100), 100, 500);
                 layouts.Add(new RdpMonitorRect(left, top, b.Width, b.Height, scale, item.Index == remotePrimaryEntry.Index));
             }
+
+            // Append any user-created virtual monitors (windowed on host screen) to the right
+            var nextRight = maxX;
+            var hostBounds = hostEntry.Screen.Bounds;
+            var hostScale = Math.Clamp((int)Math.Round(hostEntry.Screen.Scaling * 100), 100, 500);
+            foreach (var vId in _virtualMonitorIds)
+            {
+                var vw = Math.Clamp(hostBounds.Width & ~1, 200, 8192);
+                var vh = Math.Clamp(hostBounds.Height & ~1, 200, 8192);
+                var vLeft = nextRight - remotePrimaryEntry.Screen.Bounds.X;
+                var vTop = hostBounds.Y - remotePrimaryEntry.Screen.Bounds.Y;
+                layouts.Add(new RdpMonitorRect(vLeft, vTop, vw, vh, hostScale, false));
+                sliceByIndex[vId] = new Rect(nextRight - minX, hostBounds.Y - minY, vw, vh);
+                nextRight += vw;
+            }
         }
 
         vm.TryResizeMonitors(layouts);
 
-        if (selected.Count == 1)
+        if (selected.Count == 1 && _virtualMonitorIds.Count == 0)
         {
             CloseAllSecondaryMonitorWindows();
             _primarySliceRect = null;
@@ -446,6 +509,32 @@ public partial class RdpView : UserControl
             }
         }
 
+        for (var vi = 0; vi < _virtualMonitorIds.Count; vi++)
+        {
+            var vId = _virtualMonitorIds[vi];
+            activeSecondary.Add(vId);
+            var slice = sliceByIndex[vId];
+            if (_secondaryMonitorWindows.TryGetValue(vId, out var existing))
+            {
+                existing.UpdateSlice(slice);
+            }
+            else
+            {
+                var vTitle = $"虚拟屏 {vi + 1} · {(int)slice.Width}×{(int)slice.Height}";
+                var monitorWin = new RdpMonitorWindow(
+                    this,
+                    vm,
+                    hostEntry.Screen,
+                    vId,
+                    slice,
+                    OnSecondaryMonitorCloseRequested,
+                    startWindowed: true,
+                    customTitle: vTitle);
+                _secondaryMonitorWindows[vId] = monitorWin;
+                monitorWin.Show();
+            }
+        }
+
         var toClose = new System.Collections.Generic.List<int>();
         foreach (var key in _secondaryMonitorWindows.Keys)
         {
@@ -462,9 +551,11 @@ public partial class RdpView : UserControl
     private void OnSecondaryMonitorCloseRequested(int monitorIndex)
     {
         _selectedMonitorIndices.Remove(monitorIndex);
+        _virtualMonitorIds.Remove(monitorIndex);
         if (_secondaryMonitorWindows.Remove(monitorIndex, out var win))
             win.Close();
         ApplySelectedMonitorLayout();
+        UpdateUltrawideModeButtonStates();
     }
 
     private void CloseAllSecondaryMonitorWindows()
