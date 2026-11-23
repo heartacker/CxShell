@@ -648,7 +648,8 @@ public partial class RdpView : UserControl
     {
         Focus();
         _ = SyncLocalClipboardToRemoteAsync();
-        var point = e.GetCurrentPoint(FramebufferImage);
+        var pointerTarget = PrimarySliceSurface.IsVisible ? (Visual)PrimarySliceSurface : FramebufferImage;
+        var point = e.GetCurrentPoint(pointerTarget);
         if (point.Properties.IsLeftButtonPressed)
             _buttonFlags |= 0x1000;
         if (point.Properties.IsMiddleButtonPressed)
@@ -719,6 +720,23 @@ public partial class RdpView : UserControl
     {
         if (DataContext is not RdpViewModel vm || FramebufferImage == null)
             return;
+
+        if (PrimarySliceSurface.IsVisible && _primarySliceRect is { Width: > 0, Height: > 0 } slice)
+        {
+            var bounds = PrimarySliceSurface.Bounds;
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                return;
+
+            var pos = e.GetPosition(PrimarySliceSurface);
+            var relX = Math.Clamp(pos.X / bounds.Width, 0, 1);
+            var relY = Math.Clamp(pos.Y / bounds.Height, 0, 1);
+            var vx = slice.X + relX * slice.Width;
+            var vy = slice.Y + relY * slice.Height;
+            var rx = (ushort)Math.Clamp((int)Math.Round(vx), 0, ushort.MaxValue);
+            var ry = (ushort)Math.Clamp((int)Math.Round(vy), 0, ushort.MaxValue);
+            vm.SendPointer(flags, rx, ry);
+            return;
+        }
 
         var (x, y) = MapPointer(
             e.GetPosition(FramebufferImage),
