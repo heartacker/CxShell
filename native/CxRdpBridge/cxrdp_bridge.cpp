@@ -2699,6 +2699,8 @@ void connection_thread(CxRdpSession* session)
                 settings,
                 FreeRDP_MultitransportFlags,
                 TRANSPORT_TYPE_UDP_FECR | TRANSPORT_TYPE_UDP_FECL);
+            freerdp_settings_set_bool(settings, FreeRDP_AutoReconnectionEnabled, TRUE);
+            freerdp_settings_set_uint32(settings, FreeRDP_AutoReconnectMaxRetries, 5u);
             freerdp_settings_set_bool(settings, FreeRDP_NegotiateSecurityLayer, profile.negotiate ? TRUE : FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, profile.nla ? TRUE : FALSE);
             freerdp_settings_set_bool(settings, FreeRDP_TlsSecurity, profile.tls ? TRUE : FALSE);
@@ -2805,7 +2807,44 @@ void connection_thread(CxRdpSession* session)
                 activate_pending_cliprdr(session);
                 flush_local_clipboard_format_list(session);
                 if (!process_rdp_events(session))
-                    break;
+                {
+                    if (!session->running || !session->instance || !session->instance->context)
+                        break;
+
+                    const UINT32 err = freerdp_get_last_error(session->instance->context);
+                    const bool isUserOrAdminDisconnect =
+                        err == FREERDP_ERROR_DISCONNECTED_BY_OTHER_CONNECTION ||
+                        err == FREERDP_ERROR_RPC_INITIATED_LOGOFF ||
+                        err == FREERDP_ERROR_LOGOFF_BY_USER ||
+                        err == FREERDP_ERROR_RPC_INITIATED_DISCONNECT_BY_USER;
+                    if (isUserOrAdminDisconnect)
+                        break;
+
+                    bool reconnected = false;
+                    const uint32_t maxRetries = 5;
+                    for (uint32_t attempt = 1; attempt <= maxRetries && session->running; ++attempt)
+                    {
+                        std::ostringstream msg;
+                        msg << "RDP connection lost, auto-reconnecting (" << attempt << "/" << maxRetries << ")...";
+                        notify_status(session, msg.str().c_str());
+
+                        for (int step = 0; step < 20 && session->running; ++step)
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                        if (!session->running)
+                            break;
+
+                        if (freerdp_reconnect(session->instance))
+                        {
+                            reconnected = true;
+                            notify_status(session, "RDP auto-reconnected.");
+                            break;
+                        }
+                    }
+
+                    if (!reconnected)
+                        break;
+                }
                 activate_pending_cliprdr(session);
                 flush_local_clipboard_format_list(session);
             }
