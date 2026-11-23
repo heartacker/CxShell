@@ -104,15 +104,46 @@ public static class RdpClipboardImageHelper
         }
     }
 
-    public static Task<bool> TryWriteLocalFilesAsync(string[] paths)
+    public static async Task<bool> TryWriteLocalFilesAsync(IClipboard? clipboard, string[] paths)
     {
         if (paths == null || paths.Length == 0)
-            return Task.FromResult(false);
+            return false;
 
         if (OperatingSystem.IsWindows())
-            return Task.FromResult(TryWriteWindowsClipboardFiles(paths));
+            return TryWriteWindowsClipboardFiles(paths);
 
-        return Task.FromResult(false);
+        if (clipboard == null)
+            return false;
+
+        try
+        {
+            var uris = new System.Collections.Generic.List<string>(paths.Length);
+            foreach (var p in paths)
+            {
+                if (!string.IsNullOrWhiteSpace(p))
+                    uris.Add(new Uri(Path.GetFullPath(p)).AbsoluteUri);
+            }
+
+            if (uris.Count == 0)
+                return false;
+
+            var transfer = new DataTransfer();
+            var item = new DataTransferItem();
+            var uriListText = string.Join("\r\n", uris) + "\r\n";
+            item.Set(
+                DataFormat.CreateBytesPlatformFormat("text/uri-list"),
+                System.Text.Encoding.UTF8.GetBytes(uriListText));
+            if (OperatingSystem.IsMacOS())
+                item.Set(DataFormat.CreateStringPlatformFormat("public.file-url"), uris[0]);
+
+            transfer.Add(item);
+            await clipboard.SetDataAsync(transfer);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string[]? TryReadWindowsClipboardFiles()

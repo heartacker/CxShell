@@ -28,6 +28,7 @@ public partial class RdpView : UserControl
     private string? _lastSyncedClipboardImageHash;
     private string? _lastSyncedClipboardFilesKey;
     private WindowsClipboardListener? _clipboardListener;
+    private DispatcherTimer? _clipboardPollTimer;
     private WindowsRdpShortcutHook? _systemShortcutHook;
     private Cursor? _customRemoteCursor;
     private Avalonia.Media.Imaging.WriteableBitmap? _customRemoteCursorBitmap;
@@ -191,21 +192,45 @@ public partial class RdpView : UserControl
 
     private void StartClipboardListener()
     {
-        if (_clipboardListener != null || !OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
+        {
+            if (_clipboardListener != null)
+                return;
+
+            _clipboardListener = new WindowsClipboardListener();
+            _clipboardListener.ClipboardChanged += OnLocalClipboardChanged;
+            return;
+        }
+
+        if (_clipboardPollTimer != null)
             return;
 
-        _clipboardListener = new WindowsClipboardListener();
-        _clipboardListener.ClipboardChanged += OnLocalClipboardChanged;
+        _clipboardPollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _clipboardPollTimer.Tick += OnClipboardPollTick;
+        _clipboardPollTimer.Start();
     }
 
     private void StopClipboardListener()
     {
-        if (_clipboardListener == null)
-            return;
+        if (_clipboardListener != null)
+        {
+            _clipboardListener.ClipboardChanged -= OnLocalClipboardChanged;
+            _clipboardListener.Dispose();
+            _clipboardListener = null;
+        }
 
-        _clipboardListener.ClipboardChanged -= OnLocalClipboardChanged;
-        _clipboardListener.Dispose();
-        _clipboardListener = null;
+        if (_clipboardPollTimer != null)
+        {
+            _clipboardPollTimer.Stop();
+            _clipboardPollTimer.Tick -= OnClipboardPollTick;
+            _clipboardPollTimer = null;
+        }
+    }
+
+    private void OnClipboardPollTick(object? sender, EventArgs e)
+    {
+        if (_isAttached && DataContext is RdpViewModel { IsConnected: true, IsClipboardChannelReady: true })
+            _ = SyncLocalClipboardToRemoteAsync();
     }
 
     private void OnLocalClipboardChanged()
@@ -820,7 +845,8 @@ public partial class RdpView : UserControl
         _applyingRemoteClipboardText = true;
         try
         {
-            if (await RdpClipboardImageHelper.TryWriteLocalFilesAsync(paths))
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (await RdpClipboardImageHelper.TryWriteLocalFilesAsync(clipboard, paths))
             {
                 _lastSyncedClipboardFilesKey = string.Join("\n", paths);
                 _lastSyncedClipboardText = null;
