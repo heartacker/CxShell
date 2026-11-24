@@ -160,25 +160,25 @@
 
                     <views:ApplicationSettingsPage Grid.Row="1"
                                                    DataContext="{Binding ApplicationSettings}"
-                                                   IsVisible="{Binding #SettingsCenter.DataContext.IsApplicationSelected, x:CompileBindings=False}"/>
+                                                   IsVisible="{Binding #SettingsCenter.((vm:SettingsCenterViewModel)DataContext).IsApplicationSelected}"/>
                     <views:AgentSettingsPage Grid.Row="1"
                                              DataContext="{Binding ApplicationSettings}"
-                                             IsVisible="{Binding #SettingsCenter.DataContext.IsAgentSelected, x:CompileBindings=False}"/>
+                                             IsVisible="{Binding #SettingsCenter.((vm:SettingsCenterViewModel)DataContext).IsAgentSelected}"/>
                     <views:ConnectionAuditPage Grid.Row="1"
                                                DataContext="{Binding ConnectionAudit}"
-                                               IsVisible="{Binding #SettingsCenter.DataContext.IsAuditSelected, x:CompileBindings=False}"/>
+                                               IsVisible="{Binding #SettingsCenter.((vm:SettingsCenterViewModel)DataContext).IsAuditSelected}"/>
                     <views:SessionRecordingPage Grid.Row="1"
                                                 DataContext="{Binding SessionRecordings}"
-                                                IsVisible="{Binding #SettingsCenter.DataContext.IsRecordingsSelected, x:CompileBindings=False}"/>
+                                                IsVisible="{Binding #SettingsCenter.((vm:SettingsCenterViewModel)DataContext).IsRecordingsSelected}"/>
                     <views:TrustedHostsPage Grid.Row="1"
                                             DataContext="{Binding ApplicationSettings}"
-                                            IsVisible="{Binding #SettingsCenter.DataContext.IsTrustedHostsSelected, x:CompileBindings=False}"/>
+                                            IsVisible="{Binding #SettingsCenter.((vm:SettingsCenterViewModel)DataContext).IsTrustedHostsSelected}"/>
                     <views:AboutPage Grid.Row="1"
-                                     DataContext="{Binding #SettingsCenter.DataContext, x:CompileBindings=False}"
-                                     IsVisible="{Binding #SettingsCenter.DataContext.IsAboutSelected, x:CompileBindings=False}"/>
+                                     DataContext="{Binding #SettingsCenter.DataContext}"
+                                     IsVisible="{Binding #SettingsCenter.((vm:SettingsCenterViewModel)DataContext).IsAboutSelected}"/>
                     <views:DonationPage Grid.Row="1"
-                                        DataContext="{Binding #SettingsCenter.DataContext, x:CompileBindings=False}"
-                                        IsVisible="{Binding #SettingsCenter.DataContext.IsSupportDonateSelected, x:CompileBindings=False}"/>
+                                        DataContext="{Binding #SettingsCenter.DataContext}"
+                                        IsVisible="{Binding #SettingsCenter.((vm:SettingsCenterViewModel)DataContext).IsSupportDonateSelected}"/>
                 </Grid>
             </Border>
         </Grid>
